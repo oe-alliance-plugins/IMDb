@@ -1,0 +1,18 @@
+{
+  "branch": "main",
+  "depends_recipe": "",
+  "description_control": "query movie details from the Internet Movie Database",
+  "description_recipe": "query movie details from the Internet Movie Database",
+  "history_source_dir": "imdb",
+  "internal_package_name": "enigma2-plugin-extensions-imdb",
+  "module_dir_name": "IMDb",
+  "output_subdir": "imdb",
+  "package_name": "enigma2-plugin-extensions-imdb",
+  "plugin_src_rel": "imdb",
+  "python_package": "IMDb",
+  "rdepends_recipe": "",
+  "replaces": "",
+  "repo_name": "imdb",
+  "rrecommends": "",
+  "rreplaces": ""
+}

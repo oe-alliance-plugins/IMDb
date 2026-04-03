@@ -1,2 +1,0 @@
-Description: query movie details from the Internet Movie Database
-Depends: enigma2, python-requests, python-twisted-core
