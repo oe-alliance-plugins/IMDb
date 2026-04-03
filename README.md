@@ -1,35 +1,35 @@
 
 
-# <p align="center">imdb Plugin for Enigma2 (E²) ![GitHub repo size](https://img.shields.io/github/repo-size/oe-alliance-plugins/imdb.svg)</p>
+# <p align="center">IMDb Plugin for Enigma2 (E²) ![GitHub repo size](https://img.shields.io/github/repo-size/oe-alliance-plugins/IMDb.svg)</p>
 
 **query movie details from the Internet Movie Database**
 
 
 ## Github status
-[![Build](https://github.com/oe-alliance-plugins/imdb/actions/workflows/buildbot.yml/badge.svg)](https://github.com/oe-alliance-plugins/imdb/actions/workflows/buildbot.yml)
-[![Lint Status](https://github.com/oe-alliance-plugins/imdb/actions/workflows/pylint.yml/badge.svg)](https://github.com/oe-alliance-plugins/imdb/actions/workflows/pylint.yml)
-[![Ruff Status](https://github.com/oe-alliance-plugins/imdb/actions/workflows/ruff.yml/badge.svg)](https://github.com/oe-alliance-plugins/imdb/actions/workflows/ruff.yml)
-[![Build Status](https://github.com/oe-alliance-plugins/imdb/actions/workflows/compile.yml/badge.svg)](https://github.com/oe-alliance-plugins/imdb/actions/workflows/compile.yml)
-[![AUTOTAG](https://github.com/oe-alliance-plugins/imdb/actions/workflows/autotag.yml/badge.svg)](https://github.com/oe-alliance-plugins/imdb/actions/workflows/autotag.yml)
+[![Build](https://github.com/oe-alliance-plugins/IMDb/actions/workflows/buildbot.yml/badge.svg)](https://github.com/oe-alliance-plugins/IMDb/actions/workflows/buildbot.yml)
+[![Lint Status](https://github.com/oe-alliance-plugins/IMDb/actions/workflows/pylint.yml/badge.svg)](https://github.com/oe-alliance-plugins/IMDb/actions/workflows/pylint.yml)
+[![Ruff Status](https://github.com/oe-alliance-plugins/IMDb/actions/workflows/ruff.yml/badge.svg)](https://github.com/oe-alliance-plugins/IMDb/actions/workflows/ruff.yml)
+[![Build Status](https://github.com/oe-alliance-plugins/IMDb/actions/workflows/compile.yml/badge.svg)](https://github.com/oe-alliance-plugins/IMDb/actions/workflows/compile.yml)
+[![AUTOTAG](https://github.com/oe-alliance-plugins/IMDb/actions/workflows/autotag.yml/badge.svg)](https://github.com/oe-alliance-plugins/IMDb/actions/workflows/autotag.yml)
 
 
-[![Plugin Version](https://img.shields.io/github/v/tag/oe-alliance-plugins/imdb?label=Latest%20Version&color=darkviolet)](https://github.com/oe-alliance-plugins/imdb/tags)
-[![Latest Release](https://img.shields.io/github/release-date/oe-alliance-plugins/imdb?label=From&color=darkviolet)](https://github.com/oe-alliance-plugins/imdb/releases/latest)
-[![Github last commit](https://img.shields.io/github/last-commit/oe-alliance-plugins/imdb)](https://github.com/oe-alliance-plugins/imdb)
-[![GitHub Activity](https://img.shields.io/github/commit-activity/y/oe-alliance-plugins/imdb.svg?label=commits)](https://github.com/oe-alliance-plugins/imdb/commits)
-[![GitHub Activity](https://img.shields.io/github/commit-activity/m/oe-alliance-plugins/imdb.svg?label=commits)](https://github.com/oe-alliance-plugins/imdb/commits)
+[![Plugin Version](https://img.shields.io/github/v/tag/oe-alliance-plugins/IMDb?label=Latest%20Version&color=darkviolet)](https://github.com/oe-alliance-plugins/IMDb/tags)
+[![Latest Release](https://img.shields.io/github/release-date/oe-alliance-plugins/IMDb?label=From&color=darkviolet)](https://github.com/oe-alliance-plugins/IMDb/releases/latest)
+[![Github last commit](https://img.shields.io/github/last-commit/oe-alliance-plugins/IMDb)](https://github.com/oe-alliance-plugins/IMDb)
+[![GitHub Activity](https://img.shields.io/github/commit-activity/y/oe-alliance-plugins/IMDb.svg?label=commits)](https://github.com/oe-alliance-plugins/IMDb/commits)
+[![GitHub Activity](https://img.shields.io/github/commit-activity/m/oe-alliance-plugins/IMDb.svg?label=commits)](https://github.com/oe-alliance-plugins/IMDb/commits)
 
 ## SonarCloud status
-[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_imdb&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_imdb)
-[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_imdb&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_imdb)
-[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_imdb&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_imdb)
-[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_imdb&metric=bugs)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_imdb)
-[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_imdb&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_imdb)
-[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_imdb&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_imdb)
-[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_imdb&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_imdb)
-[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_imdb&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_imdb)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_IMDb&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_IMDb)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_IMDb&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_IMDb)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_IMDb&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_IMDb)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_IMDb&metric=bugs)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_IMDb)
+[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_IMDb&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_IMDb)
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_IMDb&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_IMDb)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_IMDb&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_IMDb)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=oe-alliance-plugins_IMDb&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_IMDb)
 
-[![SonarQube Cloud](https://sonarcloud.io/images/project_badges/sonarcloud-light.svg)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_imdb)
+[![SonarQube Cloud](https://sonarcloud.io/images/project_badges/sonarcloud-light.svg)](https://sonarcloud.io/summary/new_code?id=oe-alliance-plugins_IMDb)
 
 ---
 
@@ -45,7 +45,7 @@ This plugin is released under GPLv3. See [LICENSE](https://www.gnu.org/licenses/
 
 ### 🤝 Contributing & Contact
 
-imdb is created by users for users and we welcome every contribution. There are no highly paid developers. There are only users who have seen a problem and done their best to fix it. This means imdb will always need the contributions of users like you. How can you get involved?
+IMDb is created by users for users and we welcome every contribution. There are no highly paid developers. There are only users who have seen a problem and done their best to fix it. This means IMDb will always need the contributions of users like you. How can you get involved?
 
 For questions or feedback, feel free and please open an issue or contribute with a Pull Request!
 
