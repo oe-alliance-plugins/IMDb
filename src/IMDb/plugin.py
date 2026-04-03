@@ -1,6 +1,5 @@
 # -*- coding: UTF-8 -*-
 # for localized messages
-from __future__ import print_function
 from . import _
 
 from Plugins.Plugin import PluginDescriptor
@@ -36,7 +35,7 @@ from six.moves.urllib.parse import quote_plus
 
 try:
 	import htmlentitydefs
-except ImportError as ie:
+except ImportError:
 	from html import entities as htmlentitydefs
 
 
@@ -103,7 +102,7 @@ def html2text(html):
 		else:  # match.group(3)
 			codepoint = int(match.group(3))
 		if codepoint:
-			return six.PY2 and unichr(codepoint).encode("utf8") or chr(codepoint)
+			return chr(codepoint)
 		return match.group(0)
 	# A review of Blunt Talk (by drinkdrunkthedifferencei) had this,
 	# which seems to be CP1252 as UTF-8.
@@ -768,7 +767,7 @@ class IMDB(Screen, HelpableScreen):
 	def openYttrailer(self):
 		try:
 			from Plugins.Extensions.YTTrailer.plugin import YTTrailer, baseEPGSelection__init__
-		except ImportError as ie:
+		except ImportError:
 			pass
 		if baseEPGSelection__init__ is None:
 			return
@@ -779,7 +778,7 @@ class IMDB(Screen, HelpableScreen):
 	def searchYttrailer(self):
 		try:
 			from Plugins.Extensions.YTTrailer.plugin import YTTrailerList, baseEPGSelection__init__
-		except ImportError as ie:
+		except ImportError:
 			pass
 		if baseEPGSelection__init__ is None:
 			return
@@ -789,7 +788,7 @@ class IMDB(Screen, HelpableScreen):
 	def searchSubsSupport(self):
 		try:
 			from Plugins.Extensions.SubsSupport.subtitles import E2SubsSeeker, SubsSearch, initSubsSettings
-		except ImportError as ie:
+		except ImportError:
 			self["statusbar"].setText(_("SubsSupport import failed"))
 			return
 
@@ -1564,7 +1563,7 @@ pluginlist = (
 
 
 def Plugins(**kwargs):
-	l = [PluginDescriptor(name=_("IMDb search") + "...",
+	items = [PluginDescriptor(name=_("IMDb search") + "...",
 			description=_("Search for details from the Internet Movie Database"),
 			where=PluginDescriptor.WHERE_EVENTINFO,
 			fnc=eventinfo,
@@ -1572,6 +1571,6 @@ def Plugins(**kwargs):
 			),
 		]
 
-	l += [pl[1] for pl in pluginlist if pl[0].value]
+	items += [pl[1] for pl in pluginlist if pl[0].value]
 
-	return l
+	return items
