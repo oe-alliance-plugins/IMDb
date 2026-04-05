@@ -26,12 +26,11 @@ import json
 import os
 import re
 import requests
-import six
 from time import strftime, strptime
 from twisted.internet.threads import deferToThread
 from shutil import copy
 
-from six.moves.urllib.parse import quote_plus
+from urllib.parse import quote_plus
 
 try:
 	import htmlentitydefs
@@ -136,15 +135,13 @@ def get(json, path, default=""):
 		if key not in json:
 			return default
 		json = json[key]
-	if isinstance(json, six.text_type):
+	if isinstance(json, str):
 		# It's possible UTF-8 has itself been converted to UTF-8
 		# (e.g. the storyline of "As You Want Me" / "Come mi vuoi").
 		try:
 			json = json.encode("latin1").decode("utf8")
 		except Exception:
 			pass
-		if six.PY2:
-			json = json.encode("utf8")
 	return json
 
 
@@ -385,8 +382,7 @@ class IMDB(Screen, HelpableScreen):
 	def gotTMD(self, response):
 		if isinstance(response, requests.Response):
 			self.json = response.content
-			if six.PY3:
-				self.json = self.json.decode("utf8")
+			self.json = self.json.decode("utf8")
 			if self.json.startswith('{"errors'):
 				if not self.tmdTitleId:
 					print("[IMDb] error getting TMD", self.json)
@@ -519,9 +515,7 @@ class IMDB(Screen, HelpableScreen):
 
 	def gotReviews(self, response):
 		self["statusbar"].setText(_("Parsing reviews..."))
-		self.reviewsJSON = response.content
-		if six.PY3:
-			self.reviewsJSON = self.reviewsJSON.decode("utf8")
+		self.reviewsJSON = response.content.decode("utf8")
 		try:
 			reviews = json.loads(self.reviewsJSON)['data']['title']['reviews']['edges']
 		except Exception as e:
@@ -831,7 +825,7 @@ class IMDB(Screen, HelpableScreen):
 		self.reviews = []
 		self.spoilers = False
 		safeRemove("/tmp/poster.jpg", "/tmp/poster-big.jpg")
-		if not isinstance(self.eventName, six.string_types):
+		if not isinstance(self.eventName, str):
 			self["statusbar"].setText("")
 			return
 		if not self.eventName:
@@ -879,9 +873,7 @@ class IMDB(Screen, HelpableScreen):
 
 	def IMDBquery(self, response):
 		self["statusbar"].setText(_("IMDb Download completed"))
-		html = response.content
-		if six.PY3:
-			html = html.decode("utf8")
+		html = response.content.decode("utf8")
 		start = html.find('"titleResults":{"results":')
 		if start != -1:
 			searchresults = json.JSONDecoder().raw_decode(html, start + 26)[0]
@@ -938,7 +930,7 @@ class IMDB(Screen, HelpableScreen):
 				if typ:
 					extras.append(typ)
 				if genres:
-					extras.append(six.ensure_str(genres))
+					extras.append(str(genres))
 				if extras:
 					title += " (%s)" % "; ".join(extras)
 				self.resultlist.insert(i, (title, get(x, 'titleId'), get(x, 'plot')))
@@ -977,9 +969,7 @@ class IMDB(Screen, HelpableScreen):
 
 	def IMDBquery2(self, response):
 		self["statusbar"].setText(_("IMDb Re-Download completed"))
-		self.html = response.content
-		if six.PY3:
-			self.html = self.html.decode("utf8")
+		self.html = response.content.decode("utf8")
 		if self.haveTMD:
 			self.IMDBparse()
 		else:
@@ -1517,12 +1507,7 @@ def movielistSearch(session, serviceref, **kwargs):
 	eventName = info and info.getName(serviceref) or ''
 	(root, ext) = os.path.splitext(eventName)
 	if ext in KNOWN_EXTENSIONS or ext in KNOWN_EXTENSIONS2:
-		if six.PY2:
-			root = root.decode("utf8")
-			eventName = re.sub(r"[\W_]+", ' ', root, 0, re.LOCALE | re.UNICODE)
-			eventName = eventName.encode("utf8")
-		else:
-			eventName = re.sub(r"[\W_]+", ' ', root, 0)
+		eventName = re.sub(r"[\W_]+", ' ', root, 0)
 	session.open(IMDB, eventName)
 
 
