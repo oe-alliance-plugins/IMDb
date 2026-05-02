@@ -72,6 +72,18 @@ def downloadPage(url, filename, params=None, headers=None, cookies=None):
 	return getPage(url, params, headers, cookies).addCallback(savePage, filename)
 
 
+def postGraphQL(query, operation_name=None, variables=None, headers=None):
+	# IMDb's public-facing GraphQL is brittle. In practice, the caching endpoint
+	# is often more permissive than api.graphql.imdb.com for anonymous requests.
+	# Keep the payload minimal and inline variables into the query string.
+	payload = {
+		"query": query,
+	}
+	headers = headers or {}
+	headers.setdefault("content-type", "application/json")
+	return getPage("https://caching.graphql.imdb.com/", data=json.dumps(payload), headers=headers)
+
+
 def safeRemove(*names):
 	for name in names:
 		try:
@@ -379,119 +391,343 @@ class IMDB(Screen, HelpableScreen):
 			pass
 		self.IMDBparse()
 
+	def imdbGraphQLHeaders(self):
+		headers = {
+			"content-type": "application/json",
+		}
+		language_code = self.cookie.get("lc-main") or "en-US"
+		parts = language_code.replace("_", "-").split("-")
+		if parts:
+			headers["X-Imdb-User-Language"] = parts[0].lower()
+		if len(parts) > 1:
+			headers["X-Imdb-User-Country"] = parts[1].upper()
+		return headers
+
+	def searchQueryGraphQL(self, search_term):
+		search_term = json.dumps(search_term)
+		return """
+query Search {
+  mainSearch(
+    first: 25
+    options: {
+      searchTerm: %s
+      type: TITLE
+      includeAdult: true
+      isExactMatch: false
+      titleSearchOptions: {
+        type: [MOVIE, TV, TV_EPISODE]
+      }
+    }
+  ) {
+    edges {
+      node {
+        entity {
+          ... on Title {
+            id
+            titleText {
+              text
+            }
+            originalTitleText {
+              text
+            }
+            titleType {
+              text
+            }
+            releaseYear {
+              year
+              endYear
+            }
+            primaryImage {
+              url
+              width
+              height
+            }
+            series {
+              series {
+                id
+                titleText {
+                  text
+                }
+                releaseYear {
+                  year
+                }
+              }
+            }
+            plot {
+              plotText {
+                plainText
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+""" % search_term
+
+	def storylineQueryGraphQL(self, title_id):
+		title_id = json.dumps(title_id)
+		return """
+query TitleStoryline {
+  title(id: %s) {
+    id
+    titleText {
+      text
+    }
+    originalTitleText {
+      text
+    }
+    titleType {
+      text
+    }
+    releaseYear {
+      year
+      endYear
+    }
+    releaseDate {
+      day
+      month
+      year
+      country {
+        text
+      }
+    }
+    ratingsSummary {
+      aggregateRating
+      voteCount
+    }
+    primaryImage {
+      url
+      width
+      height
+    }
+    plot {
+      plotText {
+        plainText
+      }
+    }
+    genres {
+      genres {
+        id
+        text
+      }
+    }
+    countriesOfOrigin {
+      countries {
+        id
+        text
+      }
+    }
+    spokenLanguages {
+      spokenLanguages {
+        id
+        text
+      }
+    }
+    runtime {
+      seconds
+    }
+    certificate {
+      rating
+      ratingReason
+      ratingsBody {
+        id
+      }
+    }
+    principalCredits {
+      credits(limit: 20) {
+        category {
+          text
+        }
+        name {
+          id
+          nameText {
+            text
+          }
+        }
+      }
+    }
+    summaries: plots(first: 1, filter: {type: SUMMARY}) {
+      edges {
+        node {
+          author
+          plotText {
+            plaidHtml
+          }
+        }
+      }
+    }
+    outlines: plots(first: 1, filter: {type: OUTLINE}) {
+      edges {
+        node {
+          plotText {
+            plaidHtml
+          }
+        }
+      }
+    }
+    synopses: plots(first: 1, filter: {type: SYNOPSIS}) {
+      edges {
+        node {
+          plotText {
+            plaidHtml
+          }
+        }
+      }
+    }
+    storylineKeywords: keywords(first: 5) {
+      edges {
+        node {
+          legacyId
+          text
+        }
+      }
+      total
+    }
+    taglines(first: 1) {
+      edges {
+        node {
+          text
+        }
+      }
+      total
+    }
+    parentsGuide {
+      guideItems(first: 0) {
+        total
+      }
+    }
+    technicalSpecifications {
+      soundMixes {
+        items {
+          text
+        }
+      }
+      colorations {
+        items {
+          text
+        }
+      }
+      aspectRatios {
+        items {
+          aspectRatio
+        }
+      }
+    }
+    featuredReviews(first: 5) {
+      edges {
+        node {
+          authorRating
+          summary {
+            originalText
+          }
+          author {
+            username {
+              text
+            }
+          }
+          text {
+            originalText {
+              plaidHtml
+            }
+          }
+        }
+      }
+    }
+    reviews(first: 1) {
+      total
+    }
+    primaryVideos {
+      edges {
+        node {
+          contentType {
+            displayName {
+              value
+            }
+          }
+          description {
+            value
+          }
+          name {
+            value
+          }
+          runtime {
+            value
+          }
+          playbackURLs {
+            url
+          }
+          timedTextTracks {
+            displayName {
+              value
+              language
+            }
+            language
+            url
+          }
+        }
+      }
+    }
+  }
+}
+""" % title_id
+
+	def reviewsQueryGraphQL(self, title_id):
+		title_id = json.dumps(title_id)
+		return """
+query TitleReviewsRefine {
+  title(id: %s) {
+    reviews(first: 25) {
+      edges {
+        node {
+          authorRating
+          summary {
+            originalText
+          }
+          author {
+            username {
+              text
+            }
+          }
+          submissionDate
+          spoiler
+          text {
+            originalText {
+              plaidHtml
+            }
+          }
+          helpfulness {
+            upVotes
+            downVotes
+          }
+        }
+      }
+    }
+  }
+}
+""" % title_id
+
+	def imdbGraphQLSearch(self):
+		variables = {
+			"searchTerm": self.eventName,
+			"includeAdult": True,
+			"isExactMatch": False,
+			"types": ["MOVIE", "TV", "TV_EPISODE", "VIDEO_GAME"],
+		}
+		return postGraphQL(self.searchQueryGraphQL(self.eventName), "Search", headers=self.imdbGraphQLHeaders())
+
+	def imdbGraphQLTitle(self, titleId):
+		return postGraphQL(self.storylineQueryGraphQL(titleId), "TitleStoryline", headers=self.imdbGraphQLHeaders())
+
+	def imdbGraphQLReviews(self, titleId):
+		return postGraphQL(self.reviewsQueryGraphQL(titleId), "TitleReviews", headers=self.imdbGraphQLHeaders())
+
 	def gotTMD(self, response):
 		if isinstance(response, requests.Response):
-			self.json = response.content
-			self.json = self.json.decode("utf8")
+			self.json = response.content.decode("utf8")
 			if self.json.startswith('{"errors'):
-				if not self.tmdTitleId:
-					print("[IMDb] error getting TMD", self.json)
-				else:
-					print("[IMDb] getting TMD via POST")
-					query = (
-						'{"query":"'
-						'query Title_Storyline($titleId: ID!) {\n'
-						'  title(id: $titleId) {\n'
-						'    ...StorylineFeature\n'
-						'  }\n'
-						'}\n'
-						'\n'
-						'fragment StorylineFeature on Title {\n'
-						'  id\n'
-						'  ...Title_Storyline_PlotSection\n'
-						'  ...Title_Storyline_Taglines\n'
-						'  ...Title_Storyline_Genres\n'
-						'  ...Title_Storyline_Certificate\n'
-						'  ...Title_Storyline_ParentsGuide\n'
-						'}\n'
-						'\n'
-						'fragment Title_Storyline_PlotSection on Title {\n'
-						'  summaries: plots(first: 1, filter: {type: SUMMARY}) {\n'
-						'    edges {\n'
-						'      node {\n'
-						'        ...PlotData\n'
-						'        author\n'
-						'      }\n'
-						'    }\n'
-						'  }\n'
-						'  outlines: plots(first: 1, filter: {type: OUTLINE}) {\n'
-						'    edges {\n'
-						'      node {\n'
-						'        ...PlotData\n'
-						'      }\n'
-						'    }\n'
-						'  }\n'
-						'  synopses: plots(first: 1, filter: {type: SYNOPSIS}) {\n'
-						'    edges {\n'
-						'      node {\n'
-						'        ...PlotData\n'
-						'      }\n'
-						'    }\n'
-						'  }\n'
-						'  storylineKeywords: keywords(first: 5) {\n'
-						'    edges {\n'
-						'      node {\n'
-						'        legacyId\n'
-						'        text\n'
-						'      }\n'
-						'    }\n'
-						'    total\n'
-						'  }\n'
-						'}\n'
-						'\n'
-						'fragment PlotData on Plot {\n'
-						'  plotText {\n'
-						'    plaidHtml\n'
-						'  }\n'
-						'}\n'
-						'\n'
-						'fragment Title_Storyline_Taglines on Title {\n'
-						'  taglines(first: 1) {\n'
-						'    edges {\n'
-						'      node {\n'
-						'        text\n'
-						'      }\n'
-						'    }\n'
-						'    total\n'
-						'  }\n'
-						'}\n'
-						'\n'
-						'fragment Title_Storyline_Genres on Title {\n'
-						'  genres {\n'
-						'    genres {\n'
-						'      id\n'
-						'      text\n'
-						'    }\n'
-						'  }\n'
-						'}\n'
-						'\n'
-						'fragment Title_Storyline_Certificate on Title {\n'
-						'  certificate {\n'
-						'    rating\n'
-						'    ratingReason\n'
-						'    ratingsBody {\n'
-						'      id\n'
-						'    }\n'
-						'  }\n'
-						'}\n'
-						'\n'
-						'fragment Title_Storyline_ParentsGuide on Title {\n'
-						'  parentsGuide {\n'
-						'    guideItems(first: 0) {\n'
-						'      total\n'
-						'    }\n'
-						'  }\n'
-						'}'
-						'",'
-						'"operationName":"Title_Storyline",'
-						'"variables":{"titleId":"%s"},'
-						'"extensions":{"persistedQuery":{"version":1,'
-						'"sha256Hash":"52cfcf87aedb3000797db549273aeac204032f772b53619e5a6e50deae00584c"}}}'
-					) % self.tmdTitleId
-					self.tmdTitleId = None
-					tmd = getPage("https://caching.graphql.imdb.com/", data=query, headers={"content-type": "application/json"}, cookies=self.cookie)
-					tmd.addBoth(self.gotTMD)
-					return
+				print("[IMDb] error getting TMD", self.json[:500])
 		if self.haveHTML:
 			self.IMDBparse()
 		else:
@@ -500,15 +736,9 @@ class IMDB(Screen, HelpableScreen):
 	def downloadTitle(self, title, titleId):
 		self["statusbar"].setText(_("Re-Query IMDb: %s...") % title or titleId)
 		fetchurl = "https://www.imdb.com/title/" + titleId + "/"
-#		print("[IMDB] downloadTitle()", fetchurl)
-		params = {
-			"operationName": 'Title_Storyline',
-			"variables": '{"titleId":"%s"}' % titleId,
-			"extensions": '{"persistedQuery":{"sha256Hash":"52cfcf87aedb3000797db549273aeac204032f772b53619e5a6e50deae00584c","version":1}}'
-		}
 		self.haveTMD = self.haveHTML = False
 		self.tmdTitleId = titleId
-		tmd = getPage("https://caching.graphql.imdb.com/", params=params, headers={"content-type": "application/json"}, cookies=self.cookie)
+		tmd = self.imdbGraphQLTitle(titleId)
 		tmd.addBoth(self.gotTMD)
 		download = getPage(fetchurl, cookies=self.cookie)
 		download.addCallback(self.IMDBquery2).addErrback(self.http_failed)
@@ -554,13 +784,143 @@ class IMDB(Screen, HelpableScreen):
 
 	def downloadReviews(self):
 		self["statusbar"].setText(_("Downloading reviews..."))
-		params = {
-			"operationName": 'TitleReviewsRefine',
-			"variables": '{"const":"%s","first":25}' % self.titleId,
-			"extensions": '{"persistedQuery":{"sha256Hash":"d389bc70c27f09c00b663705f0112254e8a7c75cde1cfd30e63a2d98c1080c87","version":1}}'
-		}
-		download = getPage("https://caching.graphql.imdb.com/", params=params, headers={"content-type": "application/json"}, cookies=self.cookie)
+		download = self.imdbGraphQLReviews(self.titleId)
 		download.addCallback(self.gotReviews).addErrback(self.http_failed)
+
+	def IMDBparseFallback(self):
+		Detailstext = _("No details found.")
+		try:
+			title = json.loads(self.json).get("data", {}).get("title", {})
+		except Exception as e:
+			print("[IMDb] fallback json parse failed:", str(e))
+			title = {}
+
+		if not title:
+			self["detailslabel"].setText(Detailstext)
+			self["statusbar"].setText(_("IMDb details unavailable (HTML/GraphQL mismatch)"))
+			return
+
+		self.Page = 1
+		self.eventName = get(title, ("titleText", "text")) or self.eventName
+		self.originalName = get(title, ("originalTitleText", "text"))
+		self.titleId = get(title, "id") or self.titleId
+
+		Titeltext = self.eventName
+		if len(Titeltext) > 57:
+			Titeltext = Titeltext[0:54] + "..."
+		self["title"].setText(text2label(Titeltext))
+		self["key_yellow"].setText(_("Details"))
+
+		genreblock = get(title, ("genres", "genres"), [])
+		genres_text = " | ".join(get(genre, "text") for genre in genreblock if get(genre, "text"))
+		if genres_text:
+			self.callbackGenre = genres_text
+
+		details = []
+		if genres_text:
+			details.append(_("Genres") + ": " + genres_text)
+
+		credits_by_cat = {}
+		for group in get(title, "principalCredits", []):
+			for credit in get(group, "credits", []):
+				cat = get(credit, ("category", "text"))
+				name = get(credit, ("name", "nameText", "text"))
+				if cat and name:
+					credits_by_cat.setdefault(cat, []).append(name)
+
+		for cat in ("Director", "Creator", "Writer", "Star", "Stars"):
+			if cat in credits_by_cat:
+				details.append(cat + ": " + ", ".join(credits_by_cat[cat]))
+
+		release = get(title, "releaseDate", {})
+		if release:
+			release_parts = []
+			if release.get("day"):
+				release_parts.append(str(release.get("day")))
+			if release.get("month"):
+				release_parts.append(str(release.get("month")))
+			if release.get("year"):
+				release_parts.append(str(release.get("year")))
+			release_text = ".".join(release_parts)
+			country = get(release, ("country", "text"))
+			if country:
+				release_text += " (" + country + ")"
+			if release_text:
+				details.append(_("Release date") + ": " + release_text)
+
+		countries = ", ".join(get(c, "text") for c in get(title, ("countriesOfOrigin", "countries"), []) if get(c, "text"))
+		if countries:
+			details.append(_("Country") + ": " + countries)
+		languages = ", ".join(get(l, "text") for l in get(title, ("spokenLanguages", "spokenLanguages"), []) if get(l, "text"))
+		if languages:
+			details.append(_("Language") + ": " + languages)
+
+		self.callbackData = "\n".join(details) if details else Detailstext
+
+		self["detailslabel"].setText(text2label(self.callbackData))
+
+		rating = get(title, ("ratingsSummary", "aggregateRating"))
+		if rating:
+			self.ratingstars = int(10 * round(rating, 1))
+			self["ratinglabel"].setText("IMDb: %.1f / 10" % rating)
+			self["stars"].show()
+			self["stars"].setValue(self.ratingstars)
+			self["starsbg"].show()
+		else:
+			self["ratinglabel"].setText(_("no user rating yet"))
+
+		cast_lines = []
+		for cat in ("Star", "Stars", "Actor", "Actress"):
+			for name in credits_by_cat.get(cat, []):
+				if name and name not in cast_lines:
+					cast_lines.append(name)
+		self.castTxt = (((_("Cast")) + ":\n " + "\n ".join(cast_lines)) if cast_lines else _("No cast list found in the database."))
+		self["castlabel"].setText(text2label(self.castTxt))
+
+		posterurl = get(title, ("primaryImage", "url"))
+		if posterurl:
+			posterurl = posterurl.replace("_V1_", "_V1_QL75_UY%d_" % self["poster"].instance.size().height())
+			self["statusbar"].setText(_("Downloading Movie Poster..."))
+			download = downloadPage(posterurl, "/tmp/poster.jpg")
+			download.addCallback(self.IMDBPoster).addErrback(self.http_failed)
+		else:
+			self.IMDBPoster("No Poster Art")
+
+		outline = get(title, ("plot", "plotText", "plainText"))
+		summary = html2text(get(title, ("summaries", "edges", "node", "plotText", "plaidHtml")))
+		synopsis = html2text(get(title, ("synopses", "edges", "node", "plotText", "plaidHtml")))
+		keywords = " | ".join(get(k, "text") for k in get(title, ("storylineKeywords", "edges"), []) if get(k, "text"))
+		tagline = get(title, ("taglines", "edges", "node", "text"))
+		cert = get(title, ("certificate", "rating"))
+		runtime_seconds = get(title, ("runtime", "seconds"), 0)
+		runtime_text = ""
+		if runtime_seconds:
+			hours = runtime_seconds // 3600
+			minutes = (runtime_seconds % 3600) // 60
+			if hours:
+				runtime_text = "%dh" % hours
+			if minutes:
+				runtime_text += (" " if runtime_text else "") + "%dm" % minutes
+		color = get(title, ("technicalSpecifications", "colorations", "items", "text"))
+		aspect = get(title, ("technicalSpecifications", "aspectRatios", "items", "aspectRatio"))
+		sound = " | ".join(get(s, "text") for s in get(title, ("technicalSpecifications", "soundMixes", "items"), []) if get(s, "text"))
+
+		Extralist = []
+		for label, value, multiline in ((_("Outline"), outline, True), (_("Synopsis"), synopsis or summary, True), (_("Tagline"), tagline, False), (_("Keywords"), keywords, False), (_("Certificate"), cert, False), (_("Runtime"), runtime_text, False), (_("Language"), languages, False), (_("Color"), color, False), (_("Aspect ratio"), aspect, False), (_("Sound mix"), sound, False)):
+			if value:
+				Extralist.append("")
+				Extralist.append(label + (":\n" if multiline else ": ") + value)
+
+		self.extraTxt = (_("Extra Info") + "\n" + "\n".join(Extralist)) if Extralist else ""
+		self.extra = text2label(self.extraTxt)
+		self["extralabel"].setText(self.extra)
+		self["extralabel"].hide()
+		self["key_blue"].setText(_("Extra Info") if self.extraTxt else "")
+		self.synopsisTxt = synopsis
+		self.synopsis = text2label(self.synopsisTxt)
+		self["VKeyIcon"].boolean = True if self.synopsis else False
+		self.extrainfos = {"reviews": 1 if get(title, ("reviews", "total"), 0) or get(title, ("featuredReviews", "edges"), []) else 0}
+		self["statusbar"].setText(_("IMDb Details parsed (GraphQL fallback)"))
 
 	def showDetails(self):
 		self.hideBigPoster()
@@ -863,13 +1223,76 @@ class IMDB(Screen, HelpableScreen):
 
 		if self.eventName:
 			self["statusbar"].setText(_("Query IMDb: %s") % self.eventName)
-			fetchurl = "https://www.imdb.com/find/?s=tt&q=" + quoteEventName(self.eventName)
-#			print("[IMDB] getIMDB() Downloading Query", fetchurl)
-			download = getPage(fetchurl, cookies=self.cookie)
-			download.addCallback(self.IMDBquery).addErrback(self.http_failed)
+			download = self.imdbGraphQLSearch()
+			download.addCallback(self.IMDBqueryGraphQL).addErrback(self.http_failed)
 
 		else:
 			self["statusbar"].setText(_("Couldn't get event name"))
+
+	def IMDBqueryGraphQL(self, response):
+		self["statusbar"].setText(_("IMDb Download completed"))
+		try:
+			data = json.loads(response.content.decode("utf8"))
+			searchresults = data["data"]["mainSearch"]["edges"]
+		except Exception as e:
+			self["detailslabel"].setText(_("IMDb query failed!"))
+			print("[IMDB] GraphQL search parse failed:", str(e), "payload=", html[:500])
+			return
+
+		self.resultlist = []
+		titles = {}
+		for edge in searchresults:
+			x = get(edge, ("node", "entity"), {})
+			series = get(x, ("series", "series", "id"))
+			if series:
+				if not config.plugins.imdb.showepisoderesults.value:
+					continue
+				if series in titles:
+					i = titles[series]
+					for t in titles:
+						if titles[t] >= i:
+							titles[t] += 1
+				else:
+					title = get(x, ("series", "series", "titleText", "text"))
+					year = get(x, ("series", "series", "releaseYear", "year"))
+					if year:
+						title += " (%s)" % year
+					self.resultlist.append((title, series, ""))
+					i = titles[series] = len(self.resultlist)
+				title = "- "
+			else:
+				title = ""
+				i = len(self.resultlist)
+			title += get(x, ("titleText", "text"))
+			year = get(x, ("releaseYear", "year"))
+			endYear = get(x, ("releaseYear", "endYear"))
+			if config.plugins.imdb.showlongmenuinfo.value:
+				typ = get(x, ("titleType", "text")) or ""
+			else:
+				typ = ""
+			extras = []
+			if year:
+				year_text = str(year)
+				if endYear:
+					year_text += "-%s" % endYear
+				extras.append(year_text)
+			if typ:
+				extras.append(typ)
+			if extras:
+				title += " (%s)" % "; ".join(extras)
+			plot = get(x, ("plot", "plotText", "plainText"))
+			self.resultlist.insert(i, (title, get(x, "id"), plot))
+
+		Len = len(self.resultlist)
+		self["menu"].l.setList(self.resultlist)
+		if Len == 1:
+			self.downloadTitle(self.resultlist[0][0], self.resultlist[0][1])
+		elif Len > 1:
+			self.Page = 1
+			self.showMenu()
+		else:
+			self["detailslabel"].setText(_("No IMDb match."))
+			self["statusbar"].setText(_("No IMDb match:") + ' ' + self.eventName)
 
 	def IMDBquery(self, response):
 		self["statusbar"].setText(_("IMDb Download completed"))
@@ -979,6 +1402,10 @@ class IMDB(Screen, HelpableScreen):
 		self.Page = 1
 		Detailstext = _("No details found.")
 		start = self.html.find('pageProps":')
+		if start == -1:
+			print("[IMDb] pageProps marker not found, using GraphQL fallback")
+			self.IMDBparseFallback()
+			return
 		if start != -1:
 			pageProps = json.JSONDecoder().raw_decode(self.html, start + 11)[0]
 			fold = pageProps['aboveTheFoldData']
