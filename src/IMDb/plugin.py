@@ -853,7 +853,7 @@ query TitleReviewsRefine {
 		countries = ", ".join(get(c, "text") for c in get(title, ("countriesOfOrigin", "countries"), []) if get(c, "text"))
 		if countries:
 			details.append(_("Country") + ": " + countries)
-		languages = ", ".join(get(l, "text") for l in get(title, ("spokenLanguages", "spokenLanguages"), []) if get(l, "text"))
+		languages = ", ".join(get(ln, "text") for ln in get(title, ("spokenLanguages", "spokenLanguages"), []) if get(ln, "text"))
 		if languages:
 			details.append(_("Language") + ": " + languages)
 
@@ -1238,7 +1238,7 @@ query TitleReviewsRefine {
 			searchresults = data["data"]["mainSearch"]["edges"]
 		except Exception as e:
 			self["detailslabel"].setText(_("IMDb query failed!"))
-			print("[IMDB] GraphQL search parse failed:", str(e), "payload=", html[:500])
+			print("[IMDB] GraphQL search parse failed:", str(e), "payload=", response.content[:500])
 			return
 
 		self.resultlist = []
