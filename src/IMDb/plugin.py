@@ -709,12 +709,14 @@ query TitleReviewsRefine {
 """ % title_id
 
 	def imdbGraphQLSearch(self):
+		"""
 		variables = {
 			"searchTerm": self.eventName,
 			"includeAdult": True,
 			"isExactMatch": False,
 			"types": ["MOVIE", "TV", "TV_EPISODE", "VIDEO_GAME"],
 		}
+		"""
 		return postGraphQL(self.searchQueryGraphQL(self.eventName), "Search", headers=self.imdbGraphQLHeaders())
 
 	def imdbGraphQLTitle(self, titleId):
