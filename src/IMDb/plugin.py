@@ -402,6 +402,10 @@ class IMDB(Screen, HelpableScreen):
 
 	def searchQueryGraphQL(self, search_term):
 		search_term = json.dumps(search_term)
+		types = "[MOVIE, TV"
+		if config.plugins.imdb.showepisoderesults.value:
+			types += ", TV_EPISODE"
+		types += "]"
 		return """
 query Search {
   mainSearch(
@@ -412,7 +416,7 @@ query Search {
       includeAdult: true
       isExactMatch: false
       titleSearchOptions: {
-        type: [MOVIE, TV, TV_EPISODE]
+        type: %s
       }
     }
   ) {
@@ -440,6 +444,10 @@ query Search {
               height
             }
             series {
+              episodeNumber {
+                episodeNumber
+                seasonNumber
+              }
               series {
                 id
                 titleText {
@@ -447,6 +455,17 @@ query Search {
                 }
                 releaseYear {
                   year
+                  endYear
+                }
+                plot {
+                  plotText {
+                    plainText
+                  }
+                }
+                countriesOfOrigin {
+                  countries(limit: 1) {
+                    id
+                  }
                 }
               }
             }
@@ -455,13 +474,30 @@ query Search {
                 plainText
               }
             }
+            runtime {
+              displayableProperty {
+                value {
+                  plainText
+                }
+              }
+            }
+            genres {
+              genres {
+                text
+              }
+            }
+            countriesOfOrigin {
+              countries(limit: 1) {
+                id
+              }
+            }
           }
         }
       }
     }
   }
 }
-""" % search_term
+""" % (search_term, types)
 
 	def storylineQueryGraphQL(self, title_id):
 		title_id = json.dumps(title_id)
@@ -706,14 +742,6 @@ query TitleReviewsRefine {
 """ % title_id
 
 	def imdbGraphQLSearch(self):
-		"""
-		variables = {
-			"searchTerm": self.eventName,
-			"includeAdult": True,
-			"isExactMatch": False,
-			"types": ["MOVIE", "TV", "TV_EPISODE", "VIDEO_GAME"],
-		}
-		"""
 		return postGraphQL(self.searchQueryGraphQL(self.eventName), "Search", headers=self.imdbGraphQLHeaders())
 
 	def imdbGraphQLTitle(self, titleId):
@@ -1242,41 +1270,67 @@ query TitleReviewsRefine {
 		titles = {}
 		for edge in searchresults:
 			x = get(edge, ("node", "entity"), {})
-			series = get(x, ("series", "series", "id"))
+			series = get(x, ("series", "series"))
 			if series:
 				if not config.plugins.imdb.showepisoderesults.value:
 					continue
-				if series in titles:
-					i = titles[series]
+				sid = get(series, "id")
+				if sid in titles:
+					i = titles[sid]
 					for t in titles:
 						if titles[t] >= i:
 							titles[t] += 1
 				else:
-					title = get(x, ("series", "series", "titleText", "text"))
-					year = get(x, ("series", "series", "releaseYear", "year"))
+					title = get(series, ("titleText", "text"))
+					year = get(series, ("releaseYear", "year"))
 					if year:
-						title += " (%s)" % year
-					self.resultlist.append((title, series, ""))
-					i = titles[series] = len(self.resultlist)
+						year_text = str(year)
+						endYear = get(series, ("releaseYear", "endYear"))
+						if endYear:
+							year_text += "-%s" % endYear
+					country = get(series, ("countriesOfOrigin", "countries", "id"))
+					extras = []
+					if year:
+						extras.append(year_text)
+					if country:
+						extras.append(country)
+					if extras:
+						title += " (%s)" % "; ".join(extras)
+					plot = get(series, ("plot", "plotText", "plainText"))
+					self.resultlist.append((title, sid, plot))
+					i = titles[sid] = len(self.resultlist)
 				title = "- "
+				e = get(x, ("series", "episodeNumber", "episodeNumber"))
+				if e:
+					s = get(x, ("series", "episodeNumber", "seasonNumber"))
+					title += _("S%d E%d - ") % (s, e)
 			else:
 				title = ""
 				i = len(self.resultlist)
 			title += get(x, ("titleText", "text"))
+			country = get(x, ("countriesOfOrigin", "countries", "id"))
 			year = get(x, ("releaseYear", "year"))
 			endYear = get(x, ("releaseYear", "endYear"))
 			if config.plugins.imdb.showlongmenuinfo.value:
 				typ = get(x, ("titleType", "text")) or ""
+				genres = "/".join(g["text"] for g in get(x, ("genres", "genres"), []))
+				runtime = get(x, ("runtime", "displayableProperty", "value", "plainText"))
 			else:
-				typ = ""
+				typ = genres = runtime = ""
 			extras = []
 			if year:
 				year_text = str(year)
 				if endYear:
 					year_text += "-%s" % endYear
 				extras.append(year_text)
+			if country:
+				extras.append(country)
+			if runtime:
+				extras.append(runtime)
 			if typ:
 				extras.append(typ)
+			if genres:
+				extras.append(genres)
 			if extras:
 				title += " (%s)" % "; ".join(extras)
 			plot = get(x, ("plot", "plotText", "plainText"))
@@ -1292,82 +1346,6 @@ query TitleReviewsRefine {
 		else:
 			self["detailslabel"].setText(_("No IMDb match."))
 			self["statusbar"].setText(_("No IMDb match:") + ' ' + self.eventName)
-
-	def IMDBquery(self, response):
-		self["statusbar"].setText(_("IMDb Download completed"))
-		html = response.content.decode("utf8")
-		start = html.find('"titleResults":{"results":')
-		if start != -1:
-			searchresults = json.JSONDecoder().raw_decode(html, start + 26)[0]
-			self.resultlist = []
-			titles = {}
-			for x in searchresults:
-				x = x['listItem']
-				series = get(x, ('series', 'id'))
-				if series:
-					if not config.plugins.imdb.showepisoderesults.value:
-						continue
-					if series in titles:
-						i = titles[series]
-						for t in titles:
-							if titles[t] >= i:
-								titles[t] += 1
-					else:
-						title = get(x, ('series', 'titleText'))
-						year = get(x, ('series', 'releaseYear', 'year'))
-						if year:
-							title += " (%s)" % year
-						self.resultlist.append((title, series, ""))
-						i = titles[series] = len(self.resultlist)
-					title = "- "
-				else:
-					title = ""
-					i = len(self.resultlist)
-				title += get(x, 'titleText')
-				year = get(x, 'releaseYear')
-				if config.plugins.imdb.showlongmenuinfo.value:
-					typ = get(x, ('titleType', 'text')) or ""
-					# This always seems to be empty, instead using another
-					# query (when you click the "i") to get director & stars.
-					# I thought about doing that, but don't think it's necessary.
-					# cast = get(x, 'principalCredits')
-					genres = "/".join(get(x, 'genres', []))
-					runtime = get(x, 'runtime', 0) // 60
-					hours = runtime // 60
-					minutes = runtime % 60
-					runtime = ""
-					if hours:
-						runtime += str(hours) + _("h")
-					if minutes:
-						if hours:
-							runtime += " "
-						runtime += str(minutes) + _("m")
-				else:
-					typ = genres = runtime = ""
-				extras = []
-				if year:
-					extras.append(str(year))
-				if runtime:
-					extras.append(runtime)
-				if typ:
-					extras.append(typ)
-				if genres:
-					extras.append(str(genres))
-				if extras:
-					title += " (%s)" % "; ".join(extras)
-				self.resultlist.insert(i, (title, get(x, 'titleId'), get(x, 'plot')))
-			Len = len(self.resultlist)
-			self["menu"].l.setList(self.resultlist)
-			if Len == 1:
-				self.downloadTitle(self.resultlist[0][0], self.resultlist[0][1])
-			elif Len > 1:
-				self.Page = 1
-				self.showMenu()
-			else:
-				self["detailslabel"].setText(_("No IMDb match."))
-				self["statusbar"].setText(_("No IMDb match:") + ' ' + self.eventName)
-		else:
-			self["detailslabel"].setText(_("IMDb query failed!"))
 
 	def searchPlot(self):
 		cur = self["menu"].getCurrent()
