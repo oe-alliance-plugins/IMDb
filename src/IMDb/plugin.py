@@ -382,14 +382,6 @@ class IMDB(Screen, HelpableScreen):
 			self["VKeyIcon"].boolean = False
 			self.Page = 0
 
-	def getLocalDetails(self):
-		self.html = open(self.localpath).read()
-		try:
-			self.json = open(os.path.splitext(self.localpath)[0] + ".json").read()
-		except Exception:
-			pass
-		self.IMDBparse()
-
 	def imdbGraphQLHeaders(self):
 		headers = {
 			"content-type": "application/json",
@@ -750,25 +742,10 @@ query TitleReviewsRefine {
 	def imdbGraphQLReviews(self, titleId):
 		return postGraphQL(self.reviewsQueryGraphQL(titleId), "TitleReviews", headers=self.imdbGraphQLHeaders())
 
-	def gotTMD(self, response):
-		if isinstance(response, requests.Response):
-			self.json = response.content.decode("utf8")
-			if self.json.startswith('{"errors'):
-				print("[IMDb] error getting TMD", self.json[:500])
-		if self.haveHTML:
-			self.IMDBparse()
-		else:
-			self.haveTMD = True
-
 	def downloadTitle(self, title, titleId):
-		self["statusbar"].setText(_("Re-Query IMDb: %s...") % title or titleId)
-		fetchurl = "https://www.imdb.com/title/" + titleId + "/"
-		self.haveTMD = self.haveHTML = False
-		self.tmdTitleId = titleId
-		tmd = self.imdbGraphQLTitle(titleId)
-		tmd.addBoth(self.gotTMD)
-		download = getPage(fetchurl)
-		download.addCallback(self.IMDBquery2).addErrback(self.http_failed)
+		self["statusbar"].setText(_("Re-Query IMDb: %s...") % (title or titleId))
+		download = self.imdbGraphQLTitle(titleId)
+		download.addCallback(self.IMDBparse).addErrback(self.http_failed)
 
 	def gotReviews(self, response):
 		self["statusbar"].setText(_("Parsing reviews..."))
@@ -814,17 +791,24 @@ query TitleReviewsRefine {
 		download = self.imdbGraphQLReviews(self.titleId)
 		download.addCallback(self.gotReviews).addErrback(self.http_failed)
 
-	def IMDBparseFallback(self):
+	def IMDBparse(self, response):
+		self["statusbar"].setText(_("IMDb Re-Download completed"))
+		self.json = response.content.decode("utf8")
+		if self.json.startswith('{"errors'):
+			self["detailslabel"].setText(_("IMDb title failed!"))
+			print("[IMDb] error getting title", self.json)
+			return
+
 		Detailstext = _("No details found.")
 		try:
 			title = json.loads(self.json).get("data", {}).get("title", {})
 		except Exception as e:
-			print("[IMDb] fallback json parse failed:", str(e))
+			print("[IMDb] json parse failed:", str(e))
 			title = {}
 
 		if not title:
 			self["detailslabel"].setText(Detailstext)
-			self["statusbar"].setText(_("IMDb details unavailable (HTML/GraphQL mismatch)"))
+			self["statusbar"].setText(_("IMDb details unavailable"))
 			return
 
 		self.Page = 1
@@ -1043,7 +1027,7 @@ query TitleReviewsRefine {
 		if self.saving:
 			if self.savingpath is not None and self.titleId:
 				list.extend((
-					(_("Save current Details as .html for offline use"), self.saveHtmlDetails),
+					(_("Save current Details as .json for offline use"), self.saveJsonDetails),
 					(_("Save current Details as .txt"), self.saveTxtDetails),
 					(_("Save current Poster and Details as .txt"), self.savePosterTxtDetails),
 				))
@@ -1076,13 +1060,11 @@ query TitleReviewsRefine {
 		ref.setName(name)
 		self.session.open(IMDbPlayer, ref)
 
-	def saveHtmlDetails(self):
+	def saveJsonDetails(self):
 		try:
 			if self.savingpath is not None:
 				isave = self.savingpath + "-" + self.titleId
-				open(isave + ".html", 'w').write(self.html)
-				if self.json:
-					open(isave + ".json", 'w').write(self.json)
+				open(isave + ".json", 'w').write(self.json)
 				if self.reviewsJSON:
 					open(isave + "-reviews.json", 'w').write(self.reviewsJSON)
 				try:
@@ -1091,7 +1073,7 @@ query TitleReviewsRefine {
 					pass
 			self["statusbar"].setText(_("IMDb save completed"))
 		except Exception as e:
-			print('[IMDb] saveHtmlDetails exception failure:', str(e))
+			print('[IMDb] saveJsonDetails exception failure:', str(e))
 
 	def saveTxtDetails(self, poster=False):
 		try:
@@ -1204,7 +1186,6 @@ query TitleReviewsRefine {
 
 	def getIMDB(self, search=False):
 		self.titleId = None
-		self.html = ""
 		self.json = self.generalinfos = None
 		self.castTxt = self.extraTxt = self.synopsisTxt = self.reviewsTxt = ""
 		self.extra = self.synopsis = ""
@@ -1235,10 +1216,7 @@ query TitleReviewsRefine {
 
 		if not search:
 			if self.localpath is not None:
-				if os.path.exists(self.localpath):
-					self.getLocalDetails()
-				else:
-					self["statusbar"].setText(_("Local file does not exist: %s") % self.localpath)
+				self["statusbar"].setText(_("localpath is no longer supported."))
 				return
 
 			if self.imdbId:
@@ -1366,422 +1344,6 @@ query TitleReviewsRefine {
 #		print("[IMDB]", text)
 		self["statusbar"].setText(text)
 		return failure
-
-	def IMDBquery2(self, response):
-		self["statusbar"].setText(_("IMDb Re-Download completed"))
-		self.html = response.content.decode("utf8")
-		if self.haveTMD:
-			self.IMDBparse()
-		else:
-			self.haveHTML = True
-
-	def IMDBparse(self):
-		self.Page = 1
-		Detailstext = _("No details found.")
-		start = self.html.find('pageProps":')
-		if start == -1:
-			print("[IMDb] pageProps marker not found, using GraphQL fallback")
-			self.IMDBparseFallback()
-			return
-		if start != -1:
-			pageProps = json.JSONDecoder().raw_decode(self.html, start + 11)[0]
-			fold = pageProps['aboveTheFoldData']
-			main = pageProps['mainColumnData']
-			i18n = pageProps['translationContext']['i18n']['translations']['resources']
-			try:
-				tmd = json.loads(self.json)['data']['title']
-			except Exception as e:
-				print("[IMDB] tmd failed:", str(e))
-				tmd = {}
-
-			self.eventName = get(fold, ('titleText', 'text'))
-			self.originalName = get(fold, ('originalTitleText', 'text'))
-			self.titleId = get(fold, 'id')
-
-			self["key_yellow"].setText(_("Details"))
-			self["statusbar"].setText(_("IMDb Details parsed"))
-
-			# "formatted-duration-duration": "{value} {unit}",
-			# "formatted-duration-longFormatting": "{hours} {minutes} {seconds}",
-			# "formatted-duration-hoursUnit": "{value, plural, one {hour} other {hours}}",
-			# "formatted-duration-minutesUnit": "{value, plural, one {minute} other {minutes}}",
-			# "formatted-duration-secondsUnit": "{value, plural, one {second} other {seconds}}",
-			def runtime(seconds):
-				if not seconds:
-					return ""
-				duration = {
-					'hours': seconds // 3600 or "",
-					'minutes': seconds % 3600 // 60 or "",
-					'seconds': seconds % 60 or ""
-				}
-				for unit, value in duration.items():
-					if value:
-						duration[unit] = get(i18n, 'formatted-duration-duration').format(value=value, unit=LingUI(get(i18n, 'formatted-duration-%sUnit' % unit), value=value))
-				return get(i18n, 'formatted-duration-longFormatting').format(**duration).replace("  ", " ").strip()
-
-			# Format a date using the full format.
-			def makedate(date):
-				if date['day']:
-					fmt = config.usage.date.full.value
-				elif date['month']:
-					fmt = "%B %Y"
-				else:
-					fmt = "%Y"
-				return strftime(fmt, (date['year'], date['month'] or 0, date['day'] or 0, 0, 0, 0, 0, 0, 0))
-
-			countries = get(main, ('countriesDetails', 'countries'))
-
-			categories_i18n = {
-				'director': "",
-				'writer': "",
-				'creator': "",
-				'episodes': get(i18n, 'title_main_episodes_title'),
-				'seasons': get(i18n, 'common_seasons'),
-				'premiere': get(i18n, 'title_main_details_releaseDate'),
-				'country': LingUI(get(i18n, 'title_main_details_countriesOfOrigin'), countryCount=len(countries)),
-				'alternativ': get(i18n, 'title_main_details_aka'),
-
-				'outline': get(i18n, 'title_main_hero_allTopics_plotLink'),      # no translation for "outline", just use "Plot"
-				'synopsis': get(i18n, 'title_main_storyline_title'),
-				'keywords': get(i18n, 'title_main_hero_allTopics_plotKeywordsLink'),
-				'tagline': get(i18n, 'title_main_storyline_label_taglines'),
-				'cert': get(i18n, 'feature_storyline_certificate_label'),
-				'trivia': get(i18n, 'common_trivia'),
-				'goofs': get(i18n, 'title_subpage_goofs'),
-				'quotes': get(i18n, 'title_subpage_quotes'),
-				'connections': get(i18n, 'title_subpage_connections'),
-				'commenttitle': get(i18n, 'title_main_userReviews_title'),
-				'language': LingUI(get(i18n, 'title_main_details_languages'), languageCount=main['spokenLanguages'] and len(get(main, ('spokenLanguages', 'spokenLanguages')))),
-				'locations': get(i18n, 'title_main_details_filmingLocations'),
-				'company': LingUI(get(i18n, 'title_main_details_productionCompany'), companyCount=len(get(main, ('production', 'edges')))),
-				'runtime': get(i18n, 'title_main_techspec_runtime'),
-				'color': get(i18n, 'title_main_techspec_color'),
-				'sound': get(i18n, 'title_main_techspec_soundmix'),
-				'aspect': get(i18n, 'title_main_techspec_aspectratio'),
-			}
-			self.spoiler_i18n = get(i18n, 'common_label_spoiler', _("Spoiler"))
-
-			self.generalinfos = {
-				'director': "",
-				'writer': "",
-				'creator': "",
-				'episodes': get(main, ('episodes', 'totalEpisodes', 'total')),
-				'seasons': len(get(main, ('episodes', 'seasons'))),
-				'country': ', '.join(get(country, 'text') for country in countries),
-				'premiere': main['releaseDate'] and "%s (%s)" % (makedate(main['releaseDate']), get(main, ('releaseDate', 'country', 'text'))),
-				# there's also main['releaseYear']['year']
-				'alternativ': get(main, ('akas', 'edges', 'node', 'text')),
-				'rating': get(fold, ('ratingsSummary', 'aggregateRating')),
-				'poster': get(fold, ('primaryImage', 'url'))
-			}
-
-			crew = get(main, 'crewV2')
-			for credit in crew:
-				groupId = credit['grouping']['groupingId']
-				key = None
-				if groupId == 'amzn1.imdb.concept.name_credit_category.ace5cb4c-8708-4238-9542-04641e7c8171':
-					key = 'director'
-				elif groupId == 'amzn1.imdb.concept.name_credit_category.c84ecaff-add5-4f2e-81db-102a41881fe3':
-					key = 'writer'
-				elif groupId == 'amzn1.imdb.concept.name_credit_group.85198717-6c2d-481e-93a5-47858774bcce':
-					key = 'creator'
-				if key:
-					categories_i18n[key] = get(credit, ('grouping', 'text'))
-					self.generalinfos[key] = ", ".join(get(name, ('name', 'nameText', 'text')) for name in get(credit, 'credits'))
-
-			Titeltext = self.eventName
-			if len(Titeltext) > 57:
-				Titeltext = Titeltext[0:54] + "..."
-			Titeltext = text2label(Titeltext)
-			self["title"].setText(Titeltext)
-
-			Detailslist = []
-
-			genreblock = get(fold, ('genres', 'genres'))
-			if genreblock:
-				genres = LingUI(get(i18n, 'title_main_storyline_label_genres'), count=len(genreblock)) + ": "
-				genres += " | ".join(get(genre, 'text') for genre in genreblock)
-				Detailslist.append(genres)
-				self.callbackGenre = genres
-
-			for category in ('director', 'creator', 'writer', 'seasons', 'episodes', 'premiere', 'country', 'alternativ'):
-				if self.generalinfos[category]:
-					Detailslist.append(categories_i18n[category] + ": " + str(self.generalinfos[category]))
-
-			Detailstext = "\n".join(Detailslist)
-
-			rating = self.generalinfos['rating']
-			if rating:
-				Ratingtext = "%s: %.1f / 10" % (get(i18n, 'title_main_hero_aggregateRating'), rating)  # IMDb rating
-				self.ratingstars = int(10 * round(rating, 1))
-				self["stars"].show()
-				self["stars"].setValue(self.ratingstars)
-				self["starsbg"].show()
-			else:
-				Ratingtext = _("no user rating yet")
-			self["ratinglabel"].setText(Ratingtext)
-
-			cast = get(main, ('castV2', 'credits'))
-			if cast:
-				Castlist = [get(i18n, 'title_main_cast_title') + ":"]
-
-				def character(credit):
-					char = get(credit, ('name', 'nameText', 'text'))
-					characters = get(credit, ('creditedRoles', 'edges', 'node', 'characters', 'edges'))
-					if characters:
-						char += " " + get(i18n, 'common_cast_characterName_with_as').format(characterName=" / ".join(get(ch, ('node', 'name')) for ch in characters))
-					# if credit['attributes']:
-					#	char += " (%s)" % "; ".join(get(attr, 'text') for attr in name['attributes'])
-					if config.plugins.imdb.showepisodeinfo.value:
-						eps = get(credit, ('episodeCredits', 'total'))
-						years = get(credit, ('episodeCredits', 'yearRange'))
-						if eps:
-							char += " [%s, %d" % (LingUI(get(i18n, 'common_cast_numEpisodes_short'), totalEpisodes=eps), years['year'])
-							endYear = get(years, 'endYear')
-							if endYear:
-								char += "-" + str(endYear)
-							char += "]"
-					return char
-
-				for node in cast:
-					Castlist.append(character(node))
-				Casttext = "\n ".join(Castlist)
-			else:
-				Casttext = _("No cast list found in the database.")
-			self.castTxt = Casttext
-			Casttext = text2label(Casttext)
-			self["castlabel"].setText(Casttext)
-
-			posterurl = self.generalinfos['poster']
-			if posterurl:
-				# Get a poster size to fit its widget.
-				posterurl = posterurl.replace("_V1_", "_V1_QL75_UY%d_" % self["poster"].instance.size().height())
-				self["statusbar"].setText(_("Downloading Movie Poster..."))
-				localfile = "/tmp/poster.jpg"
-#				print("[IMDB] downloading poster " + posterurl + " to " + localfile)
-				download = downloadPage(posterurl, localfile)
-				download.addCallback(self.IMDBPoster).addErrback(self.http_failed)
-			else:
-				self.IMDBPoster("No Poster Art")
-
-			# "feature_awards_winsAndNominations": "{numOfWins, plural, one {1 win} other {{numOfWins} wins}} & {numOfNoms, plural, one {1 nomination} other {{numOfNoms} nominations}}",
-			# "feature_awards_winsAndNominationsTotal": "{numOfWins, plural, one {1 win} other {{numOfWins} wins}} & {numOfNoms, plural, one {1 nomination total} other {{numOfNoms} nominations total}}",
-			# "feature_awards_onlyNominations": "{numOfNoms, plural, one {1 nomination} other {{numOfNoms} nominations}}",
-			# "feature_awards_onlyNominationsTotal": "{numOfNoms, plural, one {1 nomination total} other {{numOfNoms} nominations total}}",
-			# "feature_awards_onlyWins": "{numOfWins, plural, one {1 win} other {{numOfWins} wins}}",
-			# "feature_awards_onlyWinsTotal": "{numOfWins, plural, one {1 win total} other {{numOfWins} wins total}}",
-			# "feature_awards_oscars_won": "Won {count, plural, one {{count} Oscar} other {{count} Oscars}}",
-			# "feature_awards_oscars_nominated": "Nominated for {count, plural, one {{count} Oscar} other {{count} Oscars}}",
-			# "feature_awards_emmys_won": "Won {count, plural, one {{count} Primetime Emmy} other {{count} Primetime Emmys}}",
-			# "feature_awards_emmys_nominated": "Nominated for {count, plural, one {{count} Primetime Emmy} other {{count} Primetime Emmys}}",
-			# "feature_awards_globes_won": "Won {count, plural, one {{count} Golden Globe} other {{count} Golden Globes}}",
-			# "feature_awards_globes_nominated": "Nominated for {count, plural, one {{count} Golden Globe} other {{count} Golden Globes}}",
-			# "feature_awards_baftas_won": "Won {count, plural, one {{count} BAFTA Film Award} other {{count} BAFTA Film Awards}}",
-			# "feature_awards_baftas_nominated": "Nominated for {count, plural, one {{count} BAFTA Film Award} other {{count} BAFTA Film Awards}}",
-			awards = ""
-			prest = get(main, 'prestigiousAwardSummary')
-			if prest:
-				award = prest['award']['event']['id']
-				if award == "ev0000003":
-					award = 'oscars'
-				elif award == "ev0000223":
-					award = 'emmys'
-				elif award == "ev0000123":
-					award = 'baftas'
-				else:
-					award = 'globes'
-				wins = prest['wins']
-				noms = prest['nominations']
-				if wins:
-					awards += LingUI(get(i18n, 'feature_awards_%s_won' % award), count=wins)
-				else:
-					awards += LingUI(get(i18n, 'feature_awards_%s_nominated' % award), count=noms)
-				awards += " | "
-			wins = get(main, ('wins', 'total'))
-			noms = get(main, ('nominationsExcludeWins', 'total'))
-			if wins and noms:
-				awards += LingUI(get(i18n, 'feature_awards_winsAndNominationsTotal'), numOfWins=wins, numOfNoms=noms)
-			elif wins:
-				awards += LingUI(get(i18n, 'feature_awards_onlyWinsTotal'), numOfWins=wins)
-			elif noms:
-				awards += LingUI(get(i18n, 'feature_awards_onlyNominationsTotal'), numOfNoms=noms)
-			if awards:
-				Extralist = ["", awards]
-			else:
-				Extralist = []
-
-			# Format a quote.
-			# [
-			#	{
-			#	  "characters": null,
-			#	  "text": null,
-			#	  "stageDirection": "from trailer",
-			#	  "__typename": "TitleQuoteLine"
-			#	},
-			#	{
-			#	  "characters": [
-			#		{
-			#		  "character": "John McBurney",
-			#		  "name": {
-			#			"id": "nm0268199",
-			#			"__typename": "Name"
-			#		  },
-			#		  "__typename": "TitleQuoteCharacter"
-			#		}
-			#	  ],
-			#	  "text": "What have you done to me, you vengeful bitches?",
-			#	  "stageDirection": "screaming",
-			#	  "__typename": "TitleQuoteLine"
-			#	}
-			# ]
-			# -->
-			# [from trailer]
-			# John McBurney: [screaming] What have you done to me, you vengeful bitches?
-
-			def quote(lines):
-				q = []
-				for char in lines:
-					stageDirection = get(char, 'stageDirection')
-					character = get(char, ('characters', 'character'))
-					text = get(char, 'text') or ""
-					line = ""
-					if character:
-						line += character + ": "
-					if stageDirection:
-						line += "[%s]" % stageDirection
-						if text:
-							line += " "
-					line += text
-					q.append(line)
-				return "\n".join(q)
-
-			def connections(node):
-				if not node:
-					return ""
-				r = get(node, ('category', 'text'))
-				series = get(node, ('associatedTitle', 'series', 'series', 'titleText', 'text'))
-				title = get(node, ('associatedTitle', 'titleText', 'text'))
-				if series:
-					r += " " + series
-				if title:
-					if series:
-						r += ":"
-					r += " " + title
-				year = get(node, ('associatedTitle', 'releaseYear', 'year'))
-				if year:
-					r += " (%s)" % year
-				return r
-
-			summary_author = get(tmd, ('summaries', 'edges', 'node', 'author'))
-			summary_author = summary_author and html2text(" &mdash;") + summary_author or ""  # might be None
-			cert_reason = get(tmd, ('certificate', 'ratingReason')) or ""
-			if cert_reason:
-				body = get(tmd, ('certificate', 'ratingsBody', 'id'))
-				if body:
-					cert_reason = body + ": " + cert_reason
-				cert_reason = " (" + cert_reason + ")"
-
-			self.extrainfos = {
-				'outline': get(fold, ('plot', 'plotText', 'plainText')),
-				'synopsis': html2text(get(tmd, ('summaries', 'edges', 'node', 'plotText', 'plaidHtml'))) + summary_author,
-				'keywords': " | ".join(get(name, ('node', 'text')) for name in get(fold, ('keywords', 'edges'))),
-				'tagline': get(tmd, ('taglines', 'edges', 'node', 'text')),
-				'cert': get(fold, ('certificate', 'rating')) + cert_reason,
-				'trivia': html2text(get(main, ('trivia', 'edges', 'node', 'text', 'plaidHtml'))),
-				'goofs': html2text(get(main, ('goofs', 'edges', 'node', 'text', 'plaidHtml'))),
-				'quotes': quote(get(main, ('quotes', 'edges', 'node', 'lines'))),
-				'connections': connections(get(main, ('connections', 'edges', 'node'))),
-				'reviews': get(main, ('reviews', 'total'), 0),
-				'language': ", ".join(get(lang, 'text') for lang in get(main, ('spokenLanguages', 'spokenLanguages'))),
-				'locations': get(main, ('filmingLocations', 'edges', 'node', 'text')),
-				'company': ", ".join(get(node, ('node', 'company', 'companyText', 'text')) for node in get(main, ('production', 'edges'))),
-				'runtime': runtime(get(main, ('runtime', 'seconds'))),
-				'color': get(main, ('technicalSpecifications', 'colorations', 'items', 'text')),
-				'sound': " | ".join(get(mix, 'text') for mix in get(main, ('technicalSpecifications', 'soundMixes', 'items'))),
-				'aspect': get(main, ('technicalSpecifications', 'aspectRatios', 'items', 'aspectRatio')),
-			}
-
-			firstnospace = True
-			nospace = ("cert", "runtime", "language", "color", "aspect", "sound")
-			categories = ("outline", "synopsis", "tagline", "keywords", "cert", "runtime", "language", "color", "aspect", "sound", "locations", "company", "trivia", "goofs", "quotes", "connections")
-			for category in categories:
-				if self.extrainfos[category]:
-					sep = ":\n" if category in ("outline", "synopsis", "quotes") else ": "
-					extraspace = True
-					if category in nospace:
-						if firstnospace:
-							firstnospace = False
-						else:
-							extraspace = False
-					if extraspace:
-						Extralist.append("")
-					if category == "outline":
-						outline = self.extrainfos["outline"]
-						synopsis = self.extrainfos["synopsis"]
-						if synopsis and synopsis.startswith(outline):
-							if extraspace:
-								Extralist.pop()
-							continue
-					Extralist.append(categories_i18n[category] + sep + self.extrainfos[category])
-
-			if self.extrainfos["reviews"]:
-				Extralist.append("")
-				featured = main['featuredReviews']['edges']
-				# "common_pagination_count": "{current} of {total}"
-				Extralist.append(categories_i18n['commenttitle'] + ": " + get(i18n, 'common_pagination_count').format(current=len(featured), total=self.extrainfos['reviews']))
-				if len(featured):
-					Extralist.append("")
-					for review in featured:
-						review = review['node']
-						Extralist.append((review['authorRating'] and str(review['authorRating']) + "/10 | " or "") + get(review, ('author', 'username', 'text')))
-						Extralist.append(get(review, ('summary', 'originalText')))
-						Extralist.append("")
-						Extralist.append(html2text(get(review, ('text', 'originalText', 'plaidHtml'))))
-						Extralist.append("")
-						Extralist.append("-" * 72)
-						Extralist.append("")
-					del Extralist[-3:]
-
-			if Extralist:
-				self.extraTxt = _("Extra Info") + "\n" + "\n".join(Extralist)
-				self.extra = text2label(self.extraTxt)
-				self["extralabel"].setText(self.extra)
-				self["extralabel"].hide()
-				self["key_blue"].setText(_("Extra Info"))
-			else:
-				self.extraTxt = self.extra = ""
-
-			self.synopsisTxt = html2text(get(tmd, ('synopses', 'edges', 'node', 'plotText', 'plaidHtml')))
-			self.synopsis = text2label(self.synopsisTxt)
-
-			self.videos = []
-			for video in get(fold, ('primaryVideos', 'edges')):
-				video = video['node']
-				typ = get(video, ('contentType', 'displayName', 'value'))
-				desc = get(video, ('description', 'value'))
-				name = get(video, ('name', 'value'))
-				# If the name is the same as the title, use the description if
-				# it appears to be a name, otherwise just use the content type.
-				if name == self.eventName:
-					name = desc if desc and len(desc) < 70 and desc != name else typ
-				runtime = video['runtime']['value']
-				# Assume the first video is the best.
-				url = get(video, ('playbackURLs', 'url'))
-				if self.eventName.lower() in name.lower():
-					title = name
-				else:
-					title = "%s - %s" % (self.eventName, name)
-				self.videos.append(("%s (%d:%02d)" % (name, runtime // 60, runtime % 60), title, url))
-				for subt in get(video, 'timedTextTracks'):
-					self.videos.append(("   " + (get(subt, ('displayName', 'value'))
-												or get(subt, ('displayName', 'language'))
-												or get(subt, 'language')),
-										title, url + "&suburi=" + get(subt, 'url')))
-
-		self.callbackData = Detailstext
-		Detailstext = text2label(Detailstext)
-		self["detailslabel"].setText(Detailstext)
-		self["VKeyIcon"].boolean = self.synopsis and True or False
 
 	def IMDBPoster(self, failed, big=False):
 		self["statusbar"].setText(_("IMDb Details parsed"))
