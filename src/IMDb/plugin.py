@@ -1,6 +1,6 @@
 # -*- coding: UTF-8 -*-
 # for localized messages
-from . import _
+from . import _, ngettext
 
 from Plugins.Plugin import PluginDescriptor
 from enigma import ePicLoad, eServiceCenter, eServiceReference
@@ -31,11 +31,6 @@ from twisted.internet.threads import deferToThread
 from shutil import copy
 
 from urllib.parse import quote_plus
-
-try:
-	import htmlentitydefs
-except ImportError:
-	from html import entities as htmlentitydefs
 
 
 # Configuration
@@ -99,29 +94,6 @@ def quoteEventName(eventName):
 	return quote_plus(text)
 
 
-# Replace entities with characters, "<br/>" with "\n" and strip any other tags.
-def html2text(html):
-	def sub(match):
-		if match.group(0)[0] == "<":
-			return match.group(0) == "<br/>" and "\n" or ""
-		if match.group(1):
-			codepoint = htmlentitydefs.name2codepoint.get(match.group(1))
-		elif match.group(2):
-			codepoint = int(match.group(2), 16)
-		else:  # match.group(3)
-			codepoint = int(match.group(3))
-		if codepoint:
-			return chr(codepoint)
-		return match.group(0)
-	# A review of Blunt Talk (by drinkdrunkthedifferencei) had this,
-	# which seems to be CP1252 as UTF-8.
-	if isinstance(html, bytes):
-		html = html.replace(b"\xc2\x85", b"\xe2\x80\xa6")  # ellipsis
-	else:
-		html = html.replace(u"\x85", u"\u2026")  # ellipsis
-	return re.sub(r"&(?:([A-Za-z0-9]+)|#x([0-9A-Fa-f]+)|#(\d+));|<.*?>", sub, html)
-
-
 # Prevent labels from processing escape characters.
 def text2label(text):
 	return re.sub(r'\\([cnrt])', r'\\\r\1', text)
@@ -147,47 +119,18 @@ def get(json, path, default=""):
 		json = json[key]
 	if isinstance(json, str):
 		# It's possible UTF-8 has itself been converted to UTF-8
-		# (e.g. the storyline of "As You Want Me" / "Come mi vuoi").
+		# (e.g. the storyline of "As You Want Me" / "Come mi vuoi",
+		# although it seems that one's been fixed)...
 		try:
 			json = json.encode("latin1").decode("utf8")
 		except Exception:
 			pass
+		# ...or CP1252 (a review of Blunt Talk by drinkdrunkthedifferencei).
+		try:
+			json = json.encode("latin1").decode("cp1252")
+		except Exception:
+			pass
 	return json
-
-
-# Process strings containing
-#	{VAR, plural, one {FORMAT} other {FORMAT}}
-# where VAR is present in keywords and will substitute the appropriate
-# format.
-def LingUI(s, **keywords):
-	# s starts at a brace, return between its closing brace.
-	def extract(s):
-		b = 0
-		for i, c in enumerate(s):
-			if c == "{":
-				b += 1
-			elif c == "}":
-				b -= 1
-				if b == 0:
-					return s[1:i]
-		return s[1:]
-
-	r = ""
-	end = 0
-	while True:
-		start = end
-		while end < len(s) and s[end] != "{":
-			end += 1
-		r += s[start:end]
-		if end >= len(s):
-			return r
-		plural = extract(s[end:])
-		end += len(plural) + 2
-		data = plural.split(", ")
-		one = extract(data[2][4:])
-		other = extract(data[2][4 + len(one) + 2 + 7:])
-		fmt = keywords[data[0]] == 1 and one or other
-		r += fmt.format(**keywords)
 
 
 class IMDB(Screen, HelpableScreen):
@@ -511,11 +454,24 @@ query TitleStoryline {
       endYear
     }
     releaseDate {
+      displayableProperty {
+        value {
+          plainText
+        }
+      }
       day
       month
       year
       country {
         text
+      }
+    }
+    episodes {
+      episodes(first: 0) {
+        total
+      }
+      displayableSeasons(first: 0) {
+        total
       }
     }
     ratingsSummary {
@@ -534,7 +490,6 @@ query TitleStoryline {
     }
     genres {
       genres {
-        id
         text
       }
     }
@@ -551,7 +506,11 @@ query TitleStoryline {
       }
     }
     runtime {
-      seconds
+      displayableProperty {
+        value {
+          plainText
+        }
+      }
     }
     certificate {
       rating
@@ -560,11 +519,79 @@ query TitleStoryline {
         id
       }
     }
-    principalCredits {
-      credits(limit: 20) {
-        category {
-          text
+    wins: awardNominations(first: 0, filter: { wins: WINS_ONLY }) {
+      total
+    }
+    nominationsExcludeWins: awardNominations(first: 0, filter: { wins: EXCLUDE_WINS }) {
+      total
+    }
+    prestigiousAwardSummary {
+      nominations
+      wins
+      award {
+        text
+      }
+    }
+    castV2: principalCreditsV2(
+      filter: { mode: "TOP_CAST" }
+      useEntitlement: false
+    ) {
+      grouping {
+        groupingId
+        text
+      }
+      totalCredits
+      credits(limit: 18) {
+        name {
+          id
+          nameText {
+            text
+          }
+          primaryImage {
+            url
+            width
+            height
+          }
         }
+        creditedRoles(first: 1) {
+          edges {
+            node {
+              category {
+                categoryId
+                text
+              }
+              attributes {
+                text
+              }
+              characters(first: 3) {
+                edges {
+                  node {
+                    name
+                  }
+                }
+              }
+            }
+          }
+        }
+        episodeCredits(first: 0) {
+          total
+          yearRange {
+            year
+            endYear
+          }
+        }
+      }
+    }
+    crewV2: principalCreditsV2(
+      filter: { mode: "DEFAULT", includeAppearances: false }
+      useEntitlement: false
+    ) {
+      totalCredits
+      grouping {
+        groupingId
+        text
+      }
+      credits(limit: 3) {
         name {
           id
           nameText {
@@ -578,7 +605,7 @@ query TitleStoryline {
         node {
           author
           plotText {
-            plaidHtml
+            plainText
           }
         }
       }
@@ -587,7 +614,7 @@ query TitleStoryline {
       edges {
         node {
           plotText {
-            plaidHtml
+            plainText
           }
         }
       }
@@ -596,7 +623,7 @@ query TitleStoryline {
       edges {
         node {
           plotText {
-            plaidHtml
+            plainText
           }
         }
       }
@@ -604,7 +631,6 @@ query TitleStoryline {
     storylineKeywords: keywords(first: 5) {
       edges {
         node {
-          legacyId
           text
         }
       }
@@ -615,12 +641,6 @@ query TitleStoryline {
         node {
           text
         }
-      }
-      total
-    }
-    parentsGuide {
-      guideItems(first: 0) {
-        total
       }
     }
     technicalSpecifications {
@@ -640,6 +660,87 @@ query TitleStoryline {
         }
       }
     }
+    trivia(first: 1, filter: { spoilers: EXCLUDE_SPOILERS }) {
+      edges {
+        node {
+          text {
+            plainText
+          }
+        }
+      }
+    }
+    goofs(first: 1, filter: { spoilers: EXCLUDE_SPOILERS }) {
+      edges {
+        node {
+          text {
+            plainText
+          }
+        }
+      }
+    }
+    quotes(first: 1, filter: { spoilers: EXCLUDE_SPOILERS }) {
+      edges {
+        node {
+          displayableArticle {
+            body {
+              plainText
+            }
+          }
+        }
+      }
+    }
+    connections(first: 1) {
+      edges {
+        node {
+          associatedTitle {
+            id
+            releaseYear {
+              year
+            }
+            titleText {
+              text
+            }
+            originalTitleText {
+              text
+            }
+            series {
+              series {
+                titleText {
+                  text
+                }
+                originalTitleText {
+                  text
+                }
+              }
+            }
+          }
+          category {
+            text
+          }
+        }
+      }
+    }
+    filmingLocations(first: 1) {
+      edges {
+        node {
+          text
+        }
+      }
+    }
+    production: companyCredits(
+      first: 3
+      filter: { categories: ["production"] }
+    ) {
+      edges {
+        node {
+          company {
+            companyText {
+              text
+            }
+          }
+        }
+      }
+    }
     featuredReviews(first: 5) {
       edges {
         node {
@@ -654,13 +755,14 @@ query TitleStoryline {
           }
           text {
             originalText {
-              plaidHtml
+              plainText
             }
           }
+          submissionDate
         }
       }
     }
-    reviews(first: 1) {
+    reviews(first: 0) {
       total
     }
     primaryVideos {
@@ -719,7 +821,7 @@ query TitleReviewsRefine {
           spoiler
           text {
             originalText {
-              plaidHtml
+              plainText
             }
           }
           helpfulness {
@@ -775,12 +877,12 @@ query TitleReviewsRefine {
 			except Exception:
 				helpful = ""
 			self.reviews.append({
-				'rating': str(get(review, 'authorRating')),
-				'title': html2text(get(review, ('summary', 'originalText'))),
-				'author': html2text(get(review, ('author', 'username', 'text'))),
+				'rating': get(review, 'authorRating'),
+				'title': get(review, ('summary', 'originalText')),
+				'author': get(review, ('author', 'username', 'text')),
 				'date': makedate(get(review, 'submissionDate')),
-				'spoiler': get(review, 'spoiler') and self.spoiler_i18n,
-				'review': html2text(get(review, ('text', 'originalText', 'plaidHtml'))),
+				'spoiler': get(review, 'spoiler'),
+				'review': get(review, ('text', 'originalText', 'plainText')),
 				'helpful': helpful
 			})
 		self["statusbar"].setText(_("IMDb Reviews parsed"))
@@ -829,42 +931,65 @@ query TitleReviewsRefine {
 
 		details = []
 		if genres_text:
-			details.append(_("Genres") + ": " + genres_text)
+			details.append(ngettext("Genre", "Genres", len(genreblock)) + ": " + genres_text)
 
 		credits_by_cat = {}
-		for group in get(title, "principalCredits", []):
-			for credit in get(group, "credits", []):
-				cat = get(credit, ("category", "text"))
-				name = get(credit, ("name", "nameText", "text"))
-				if cat and name:
-					credits_by_cat.setdefault(cat, []).append(name)
+		crew_label = {}
+		crew = get(title, "crewV2")
+		for credit in crew:
+			cat = None
+			credits = get(credit, "credits")
+			groupId = credit["grouping"]["groupingId"]
+			if groupId == "amzn1.imdb.concept.name_credit_category.ace5cb4c-8708-4238-9542-04641e7c8171":
+				cat = "director"
+				crew_label[cat] = ngettext("Director", "Directors", len(credits))
+			elif groupId == "amzn1.imdb.concept.name_credit_category.c84ecaff-add5-4f2e-81db-102a41881fe3":
+				cat = "writer"
+				crew_label[cat] = ngettext("Writer", "Writers", len(credits))
+			elif groupId == "amzn1.imdb.concept.name_credit_group.85198717-6c2d-481e-93a5-47858774bcce":
+				cat = "creator"
+				crew_label[cat] = ngettext("Creator", "Creators", len(credits))
+			if cat:
+				credits_by_cat[cat] = ", ".join(get(name, ("name", "nameText", "text")) for name in credits)
 
-		for cat in ("Director", "Creator", "Writer", "Star", "Stars"):
+		for cat in ("director", "creator", "writer"):
 			if cat in credits_by_cat:
-				details.append(cat + ": " + ", ".join(credits_by_cat[cat]))
+				details.append(crew_label[cat] + ": " + credits_by_cat[cat])
+
+		seasons = get(title, ("episodes", "displayableSeasons", "total"))
+		if seasons:
+			details.append(_("Seasons") + ": " + str(seasons))
+		episodes = get(title, ("episodes", "episodes", "total"))
+		if episodes:
+			details.append(_("Episodes") + ": " + str(episodes))
 
 		release = get(title, "releaseDate", {})
 		if release:
-			release_parts = []
-			if release.get("day"):
-				release_parts.append(str(release.get("day")))
-			if release.get("month"):
-				release_parts.append(str(release.get("month")))
-			if release.get("year"):
-				release_parts.append(str(release.get("year")))
-			release_text = ".".join(release_parts)
+			if self.lang.startswith("en"):
+				release_text = get(release, ("displayableProperty", "value", "plainText"))
+			else:
+				release_parts = []
+				if release.get("day"):
+					release_parts.append(str(release.get("day")))
+				if release.get("month"):
+					release_parts.append(str(release.get("month")))
+				if release.get("year"):
+					release_parts.append(str(release.get("year")))
+				release_text = ".".join(release_parts)
 			country = get(release, ("country", "text"))
 			if country:
 				release_text += " (" + country + ")"
 			if release_text:
 				details.append(_("Release date") + ": " + release_text)
 
-		countries = ", ".join(get(c, "text") for c in get(title, ("countriesOfOrigin", "countries"), []) if get(c, "text"))
+		countryblock = get(title, ("countriesOfOrigin", "countries"), [])
+		countries = ", ".join(get(c, "text") for c in countryblock if get(c, "text"))
 		if countries:
-			details.append(_("Country") + ": " + countries)
-		languages = ", ".join(get(ln, "text") for ln in get(title, ("spokenLanguages", "spokenLanguages"), []) if get(ln, "text"))
+			details.append(ngettext("Country", "Countries", len(countryblock)) + ": " + countries)
+		langblock = get(title, ("spokenLanguages", "spokenLanguages"), [])
+		languages = ", ".join(get(ln, "text") for ln in langblock if get(ln, "text"))
 		if languages:
-			details.append(_("Language") + ": " + languages)
+			details.append(ngettext("Language", "Languages", len(langblock)) + ": " + languages)
 
 		self.callbackData = "\n".join(details) if details else Detailstext
 
@@ -873,56 +998,192 @@ query TitleReviewsRefine {
 		rating = get(title, ("ratingsSummary", "aggregateRating"))
 		if rating:
 			self.ratingstars = int(10 * round(rating, 1))
-			self["ratinglabel"].setText("IMDb: %.1f / 10" % rating)
+			self["ratinglabel"].setText("%s: %.1f / 10" % (_("IMDb rating"), rating))
 			self["stars"].show()
 			self["stars"].setValue(self.ratingstars)
 			self["starsbg"].show()
 		else:
 			self["ratinglabel"].setText(_("no user rating yet"))
 
-		cast_lines = []
-		for cat in ("Star", "Stars", "Actor", "Actress"):
-			for name in credits_by_cat.get(cat, []):
-				if name and name not in cast_lines:
-					cast_lines.append(name)
-		self.castTxt = (((_("Cast")) + ":\n " + "\n ".join(cast_lines)) if cast_lines else _("No cast list found in the database."))
+		cast = get(title, ("castV2", "credits"))
+		if cast:
+			def character(credit):
+				char = get(credit, ("name", "nameText", "text"))
+				characters = get(credit, ("creditedRoles", "edges", "node", "characters", "edges"))
+				if characters:
+					char += " " + _("as") + " " + " / ".join(get(ch, ("node", "name")) for ch in characters)
+				# if credit["attributes"]:
+				#	char += " (%s)" % "; ".join(get(attr, "text") for attr in name["attributes"])
+				if config.plugins.imdb.showepisodeinfo.value:
+					eps = get(credit, ("episodeCredits", "total"))
+					years = get(credit, ("episodeCredits", "yearRange"))
+					if eps:
+						char += " [%s, %d" % (ngettext("{n} ep", "{n} eps", eps).format(n=eps), years["year"])
+						endYear = get(years, "endYear")
+						if endYear:
+							char += "-" + str(endYear)
+						char += "]"
+				return char
+
+			Castlist = [_("Top cast") + ":"]
+			for node in cast:
+				Castlist.append(character(node))
+			self.castTxt = "\n ".join(Castlist)
+		else:
+			self.castTxt = _("No cast list found in the database.")
 		self["castlabel"].setText(text2label(self.castTxt))
 
-		posterurl = get(title, ("primaryImage", "url"))
-		if posterurl:
-			posterurl = posterurl.replace("_V1_", "_V1_QL75_UY%d_" % self["poster"].instance.size().height())
+		self.posterurl = get(title, ("primaryImage", "url"))
+		if self.posterurl:
+			posterurl = self.posterurl.replace("_V1_", "_V1_QL75_UY%d_" % self["poster"].instance.size().height())
 			self["statusbar"].setText(_("Downloading Movie Poster..."))
 			download = downloadPage(posterurl, "/tmp/poster.jpg")
 			download.addCallback(self.IMDBPoster).addErrback(self.http_failed)
 		else:
 			self.IMDBPoster("No Poster Art")
 
+		awards = ""
+		prest = get(title, "prestigiousAwardSummary")
+		if prest:
+			award = get(prest, ("award", "text"))
+			wins = prest["wins"]
+			noms = prest["nominations"]
+			if wins:
+				awards += ngettext("{n} {award} win", "{n} {award} wins", wins).format(n=wins, award=award)
+			else:
+				awards += ngettext("{n} {award} nomination", "{n} {award} nominations", noms).format(n=noms, award=award)
+			awards += " | "
+		wins = get(title, ("wins", "total"))
+		noms = get(title, ("nominationsExcludeWins", "total"))
+		if wins:
+			awards += ngettext("{n} win", "{n} wins", wins).format(n=wins)
+		if noms:
+			if wins:
+				awards += _(" & ")
+			awards += ngettext("{n} nomination total", "{n} nominations total", noms).format(n=noms)
+
 		outline = get(title, ("plot", "plotText", "plainText"))
-		summary = html2text(get(title, ("summaries", "edges", "node", "plotText", "plaidHtml")))
-		synopsis = html2text(get(title, ("synopses", "edges", "node", "plotText", "plaidHtml")))
-		keywords = " | ".join(get(k, "text") for k in get(title, ("storylineKeywords", "edges"), []) if get(k, "text"))
+		summary = get(title, ("summaries", "edges", "node", "plotText", "plainText"))
+		if summary:
+			if summary.startswith(outline):
+				outline = ""
+			summary_author = get(title, ("summaries", "edges", "node", "author"))
+			if summary_author:
+				summary += " \u2014" + summary_author
+		synopsis = get(title, ("synopses", "edges", "node", "plotText", "plainText"))
+		keywords = " | ".join(get(k, ("node", "text")) for k in get(title, ("storylineKeywords", "edges"), []))
 		tagline = get(title, ("taglines", "edges", "node", "text"))
 		cert = get(title, ("certificate", "rating"))
-		runtime_seconds = get(title, ("runtime", "seconds"), 0)
-		runtime_text = ""
-		if runtime_seconds:
-			hours = runtime_seconds // 3600
-			minutes = (runtime_seconds % 3600) // 60
-			if hours:
-				runtime_text = "%dh" % hours
-			if minutes:
-				runtime_text += (" " if runtime_text else "") + "%dm" % minutes
+		cert_reason = get(title, ("certificate", "ratingReason"))
+		if cert_reason:
+			body = get(title, ("certificate", "ratingsBody", "id"))
+			if body:
+				cert_reason = body + ": " + cert_reason
+			cert += " (" + cert_reason + ")"
+		runtime_text = get(title, ("runtime", "displayableProperty", "value", "plainText"))
 		color = get(title, ("technicalSpecifications", "colorations", "items", "text"))
 		aspect = get(title, ("technicalSpecifications", "aspectRatios", "items", "aspectRatio"))
 		sound = " | ".join(get(s, "text") for s in get(title, ("technicalSpecifications", "soundMixes", "items"), []) if get(s, "text"))
+		locations = get(title, ("filmingLocations", "edges", "node", "text"))
+		companies = ", ".join(get(node, ("node", "company", "companyText", "text")) for node in get(title, ("production", "edges")))
+		trivia = get(title, ("trivia", "edges", "node", "text", "plainText"))
+		goofs = get(title, ("goofs", "edges", "node", "text", "plainText"))
+		quotes = get(title, ("quotes", "edges", "node", "displayableArticle", "body", "plainText"))
+
+		connections = ""
+		node = get(title, ("connections", "edges", "node"))
+		if node:
+			connections = get(node, ("category", "text"))
+			series = get(node, ("associatedTitle", "series", "series", "titleText", "text"))
+			atitle = get(node, ("associatedTitle", "titleText", "text"))
+			if series:
+				connections += " " + series
+			if atitle:
+				if series:
+					connections += ":"
+				connections += " " + atitle
+			year = get(node, ("associatedTitle", "releaseYear", "year"))
+			if year:
+				connections += " (%s)" % year
+
+		specs = []
+		for label, value in (
+				(_("Certificate"), cert),
+				(_("Runtime"), runtime_text),
+				(_("Color"), color),
+				(_("Aspect ratio"), aspect),
+				(_("Sound mix"), sound)):
+			if value:
+				specs.append(label + ": " + value)
+		specs = "\n".join(specs)
 
 		Extralist = []
-		for label, value, multiline in ((_("Outline"), outline, True), (_("Synopsis"), synopsis or summary, True), (_("Tagline"), tagline, False), (_("Keywords"), keywords, False), (_("Certificate"), cert, False), (_("Runtime"), runtime_text, False), (_("Language"), languages, False), (_("Color"), color, False), (_("Aspect ratio"), aspect, False), (_("Sound mix"), sound, False)):
+		for label, value, multiline in (
+				("", awards, True),
+				(_("Plot"), outline, True),
+				(_("Storyline"), summary, True),
+				(_("Tagline"), tagline, False),
+				(_("Plot keywords"), keywords, False),
+				("", specs, False),
+				(_("Filming locations"), locations, False),
+				(_("Production companies"), companies, False),
+				(_("Trivia"), trivia, False),
+				(_("Goofs"), goofs, False),
+				(_("Quotes"), quotes.strip(), True),
+				(_("Connections"), connections, False)):
 			if value:
+				if label:
+					label += ":\n" if multiline else ": "
+				Extralist.append(label + value)
 				Extralist.append("")
-				Extralist.append(label + (":\n" if multiline else ": ") + value)
 
-		self.extraTxt = (_("Extra Info") + "\n" + "\n".join(Extralist)) if Extralist else ""
+		reviews = get(title, ("reviews", "total"))
+		if reviews:
+			featured = get(title, ("featuredReviews", "edges"))
+			self.morereviews = len(featured) < reviews
+			Extralist.append(_("User reviews") + ": " + _("%s of %s") % (len(featured), reviews))
+			if len(featured):
+				Extralist.append("")
+				for review in featured:
+					review = review["node"]
+					arating = review["authorRating"] and str(review["authorRating"]) + "/10"
+					author = get(review, ("author", "username", "text"))
+					date = get(review, "submissionDate")
+					Extralist.append(" | ".join(x for x in (arating, author, date) if x))
+					Extralist.append(get(review, ("summary", "originalText")))
+					Extralist.append("")
+					Extralist.append(get(review, ("text", "originalText", "plainText")))
+					Extralist.append("")
+					Extralist.append("-" * 72)
+					Extralist.append("")
+				del Extralist[-3:]
+
+		self.videos = []
+		for video in get(title, ("primaryVideos", "edges")):
+			video = video["node"]
+			typ = get(video, ("contentType", "displayName", "value"))
+			desc = get(video, ("description", "value"))
+			name = get(video, ("name", "value"))
+			# If the name is the same as the title, use the description if
+			# it appears to be a name, otherwise just use the content type.
+			if name == self.eventName:
+				name = desc if desc and len(desc) < 70 and desc != name else typ
+			runtime = video["runtime"]["value"]
+			# Prefer HLS to MP4 to whatever (WebM at time of writing).
+			url = get(sorted(get(video, ("playbackURLs")), key=lambda v:
+				1 if ".m3u8" in v["url"] else 2 if ".mp4" in v["url"] else 3), "url")
+			if self.eventName.lower() in name.lower():
+				title = name
+			else:
+				title = "%s - %s" % (self.eventName, name)
+			self.videos.append(("%s (%d:%02d)" % (name, runtime // 60, runtime % 60), title, url))
+			for subt in get(video, "timedTextTracks"):
+				self.videos.append(("   " + (get(subt, ("displayName", "value"))
+											or get(subt, ("displayName", "language"))
+											or get(subt, "language")),
+									title, url + "&suburi=" + get(subt, "url")))
+
+		self.extraTxt = (_("Extra Info") + "\n\n" + "\n".join(Extralist)) if Extralist else ""
 		self.extra = text2label(self.extraTxt)
 		self["extralabel"].setText(self.extra)
 		self["extralabel"].hide()
@@ -930,8 +1191,7 @@ query TitleReviewsRefine {
 		self.synopsisTxt = synopsis
 		self.synopsis = text2label(self.synopsisTxt)
 		self["VKeyIcon"].boolean = True if self.synopsis else False
-		self.extrainfos = {"reviews": 1 if get(title, ("reviews", "total"), 0) or get(title, ("featuredReviews", "edges"), []) else 0}
-		self["statusbar"].setText(_("IMDb Details parsed (GraphQL fallback)"))
+		self["statusbar"].setText(_("IMDb Details parsed"))
 
 	def showDetails(self):
 		self.hideBigPoster()
@@ -978,11 +1238,14 @@ query TitleReviewsRefine {
 				pos = 0
 			reviews = []
 			for review in self.reviews:
-				reviews.append((review['rating'] and review['rating'] + "/10 | " or "") + review['date'])
-				reviews.append(review['title'] + " [" + review['author'] + "]")
+				rating = review["rating"] and str(review["rating"]) + "/10"
+				author = review["author"]
+				date = review["date"]
+				reviews.append(" | ".join(x for x in (rating, author, date) if x))
+				reviews.append(review['title'])
 				reviews.append("")
 				if review['spoiler']:
-					reviews.append("** " + review['spoiler'] + " **")
+					reviews.append(_("** Spoiler **"))
 					reviews.append("")
 				if self.spoilers or not review['spoiler']:
 					reviews.append(review['review'])
@@ -1010,7 +1273,7 @@ query TitleReviewsRefine {
 	def showReviews(self):
 		self.hideBigPoster()
 
-		if self.Page != 0 and self.extrainfos["reviews"]:
+		if self.Page != 0 and self.morereviews:
 			if not self.reviews:
 				self.downloadReviews()
 			else:
@@ -1091,20 +1354,18 @@ query TitleReviewsRefine {
 		self.saveTxtDetails(True)
 
 	def IMDBsavetxt(self, poster=False):
-		if not self.generalinfos:
+		if not self.titleId:
 			return None
 
 		# save the poster.jpg (big poster if we have it, otherwise get full size)
-		if poster:
-			posterurl = self.generalinfos["poster"]
-			if posterurl:
-				postersave = self.savingpath + "-" + self.titleId + ".jpg"
-				if fileExists("/tmp/poster-big.jpg"):
-					copy("/tmp/poster-big.jpg", postersave)
-				else:
-#					print("[IMDB] downloading poster " + posterurl + " to " + postersave)
-					download = downloadPage(posterurl, postersave)
-					download.addErrback(self.http_failed)
+		if self.posterurl:
+			postersave = self.savingpath + "-" + self.titleId + ".jpg"
+			if fileExists("/tmp/poster-big.jpg"):
+				copy("/tmp/poster-big.jpg", postersave)
+			else:
+				# print("[IMDB] downloading poster " + self.posterurl + " to " + postersave)
+				download = downloadPage(self.posterurl, postersave)
+				download.addErrback(self.http_failed)
 
 		return (
 			"%s\n"  # title
@@ -1186,10 +1447,11 @@ query TitleReviewsRefine {
 
 	def getIMDB(self, search=False):
 		self.titleId = None
-		self.json = self.generalinfos = None
+		self.json = self.posterurl = None
 		self.castTxt = self.extraTxt = self.synopsisTxt = self.reviewsTxt = ""
 		self.extra = self.synopsis = ""
 		self.videos = []
+		self.morereviews = False
 		self.reviews = []
 		self.spoilers = False
 		safeRemove("/tmp/poster.jpg", "/tmp/poster-big.jpg")
@@ -1341,7 +1603,7 @@ query TitleReviewsRefine {
 				text = _("IMDB Exception")
 			error_message = failure.getErrorMessage()
 		text += ": " + error_message
-#		print("[IMDB]", text)
+		# print("[IMDB]", text)
 		self["statusbar"].setText(text)
 		return failure
 
@@ -1360,20 +1622,18 @@ query TitleReviewsRefine {
 			self["poster"].instance.setPixmap(ptr)
 
 	def bigPoster(self):
-		if not self.generalinfos or self.poster_pos:
+		if not self.posterurl or self.poster_pos:
 			return
-		posterurl = self.generalinfos['poster']
-		if posterurl:
-			localfile = "/tmp/poster-big.jpg"
-			if fileExists(localfile):
-				self.IMDBPosterBig()
-				return
-			# Get a poster size to fit the skin.
-			posterurl = posterurl.replace("_V1_", "_V1_QL75_UY%d_" % self.instance.size().height())
-			self["statusbar"].setText(_("Downloading Movie Poster..."))
-#			print("[IMDB] downloading poster " + posterurl + " to " + localfile)
-			download = downloadPage(posterurl, localfile)
-			download.addCallback(self.IMDBPosterBig).addErrback(self.http_failed)
+		localfile = "/tmp/poster-big.jpg"
+		if fileExists(localfile):
+			self.IMDBPosterBig()
+			return
+		# Get a poster size to fit the skin.
+		posterurl = self.posterurl.replace("_V1_", "_V1_QL75_UY%d_" % self.instance.size().height())
+		self["statusbar"].setText(_("Downloading Movie Poster..."))
+		# print("[IMDB] downloading poster " + posterurl + " to " + localfile)
+		download = downloadPage(posterurl, localfile)
+		download.addCallback(self.IMDBPosterBig).addErrback(self.http_failed)
 
 	def IMDBPosterBig(self, failed=None):
 		if failed:
