@@ -47,6 +47,7 @@ config.plugins.imdb.ignore_tags = ConfigText(visible_width=50, fixed_size=False)
 config.plugins.imdb.showlongmenuinfo = ConfigYesNo(default=False)
 config.plugins.imdb.showepisoderesults = ConfigYesNo(default=False)
 config.plugins.imdb.showepisodeinfo = ConfigYesNo(default=False)
+config.plugins.imdb.translate_texts = ConfigYesNo(default=False)
 
 
 def getPage(url, params=None, data=None, headers=None):
@@ -131,6 +132,32 @@ def get(json, path, default=""):
 		except Exception:
 			pass
 	return json
+
+# High‑quality translation using Google Translate (no API key required)
+
+
+def imdb_translate(text, lang):
+	if lang != "en" and text:
+		try:
+			params = {
+				"client": "gtx",
+				"sl": "en",
+				"tl": lang,
+				"dt": "t",
+				"q": text,
+			}
+			r = requests.get(
+				"https://translate.googleapis.com/translate_a/single",
+				params=params,
+				timeout=10
+			)
+			if r.ok:
+				# Google returns nested lists, extract the translated text
+				data = r.json()
+				text = "".join([part[0] for part in data[0]])
+		except Exception:
+			pass
+	return text
 
 
 class IMDB(Screen, HelpableScreen):
@@ -1090,6 +1117,20 @@ query TitleReviewsRefine {
 		goofs = get(title, ("goofs", "edges", "node", "text", "plainText"))
 		quotes = get(title, ("quotes", "edges", "node", "displayableArticle", "body", "plainText"))
 
+		# Translation if selected
+		lang = language.getLanguage().split("_")[0]
+
+		def safe_translate(text, lang):
+			return imdb_translate(text, lang) if text else text
+
+		if lang != "en" and config.plugins.imdb.translate_texts.value:
+			outline = safe_translate(outline, lang)
+			summary = safe_translate(summary, lang)
+			synopsis = safe_translate(synopsis, lang)
+			trivia = safe_translate(trivia, lang)
+			goofs = safe_translate(goofs, lang)
+			quotes = safe_translate(quotes, lang)
+
 		connections = ""
 		node = get(title, ("connections", "edges", "node"))
 		if node:
@@ -1149,10 +1190,20 @@ query TitleReviewsRefine {
 					arating = review["authorRating"] and str(review["authorRating"]) + "/10"
 					author = get(review, ("author", "username", "text"))
 					date = get(review, "submissionDate")
+
+					# Original texts
+					summary_text = get(review, ("summary", "originalText"))
+					body_text = get(review, ("text", "originalText", "plainText"))
+
+					# Translate both using Google
+					if lang != "en" and config.plugins.imdb.translate_texts.value:
+						summary_text = safe_translate(summary_text, lang)
+						body_text = safe_translate(body_text, lang)
+
 					Extralist.append(" | ".join(x for x in (arating, author, date) if x))
-					Extralist.append(get(review, ("summary", "originalText")))
+					Extralist.append(summary_text)
 					Extralist.append("")
-					Extralist.append(get(review, ("text", "originalText", "plainText")))
+					Extralist.append(body_text)
 					Extralist.append("")
 					Extralist.append("-" * 72)
 					Extralist.append("")
@@ -1590,7 +1641,13 @@ query TitleReviewsRefine {
 	def searchPlot(self):
 		cur = self["menu"].getCurrent()
 		if cur:
-			self["statusbar"].setText(cur[2])
+			plot_text = cur[2]  # original text
+			if config.plugins.imdb.translate_texts.value:
+				lang = language.getLanguage().split("_")[0]  # UI language
+				if lang != "en":
+					if plot_text:
+						plot_text = imdb_translate(plot_text, lang)
+			self["statusbar"].setText(plot_text)
 
 	def http_failed(self, failure):
 		text = _("IMDb Download failed")
