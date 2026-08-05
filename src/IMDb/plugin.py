@@ -74,7 +74,6 @@ def postGraphQL(query, operation_name=None, variables=None, headers=None):
 		"query": query,
 	}
 	headers = headers or {}
-	headers.setdefault("content-type", "application/json")
 	return getPage("https://caching.graphql.imdb.com/", data=json.dumps(payload), headers=headers)
 
 
@@ -355,6 +354,7 @@ class IMDB(Screen, HelpableScreen):
 	def imdbGraphQLHeaders(self):
 		headers = {
 			"content-type": "application/json",
+			"referer": "https://www.imdb.com/",
 		}
 		if self.lang:
 			headers["X-Imdb-User-Language"] = self.lang
