@@ -122,7 +122,7 @@ msgstr "Wyjdź z wyszukiwania IMDb"
 
 #: ../plugin.py:1241 ../plugin.py:1245
 msgid "Extra Info"
-msgstr "Szczegóły"
+msgstr "Więcej"
 
 #: ../plugin.py:1173
 msgid "Filming locations"
