@@ -9,21 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build
-    runs-on: ubuntu-24.04
-    strategy:
-      matrix:
-        python: ['3.13']
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-
-      - name: Build plugins, python ${{ matrix.python }}
-        run: |
-          cd src
-          python -m compileall .
+    uses: oe-alliance-plugins/.github/.github/workflows/compile.yml@main
+    # with:
+    #   path: src
+    #   python-versions: '["3.14"]'
