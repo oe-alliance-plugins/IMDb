@@ -1,41 +1,40 @@
 # -*- coding: UTF-8 -*-
-# for localized messages
-from . import _, ngettext
+from functools import partial
+from importlib import import_module
+from json import dumps, loads
+from os import remove
+from os.path import splitext
+from re import sub
+from shutil import copy
+from time import strftime, strptime
+from urllib.parse import quote_plus
+from twisted.internet.threads import deferToThread
 
-from Plugins.Plugin import PluginDescriptor
 from enigma import ePicLoad, eServiceCenter, eServiceReference
+
+from Components.ActionMap import HelpableActionMap
+from Components.Button import Button
+from Components.config import ConfigSubsection, ConfigText, ConfigYesNo, config
+from Components.Label import Label
+from Components.Language import language
+from Components.MenuList import MenuList
+from Components.MovieList import KNOWN_EXTENSIONS
+from Components.Pixmap import Pixmap
+from Components.PluginComponent import plugins
+from Components.ProgressBar import ProgressBar
+from Components.ScrollLabel import ScrollLabel
+from Components.Sources.Boolean import Boolean
+from Components.Sources.StaticText import StaticText
+from Plugins.Plugin import PluginDescriptor
+from Screens.ChoiceBox import ChoiceBox
+from Screens.HelpMenu import HelpableScreen
+from Screens.InfoBar import MoviePlayer
 from Screens.Screen import Screen
 from Screens.Setup import Setup
-from Screens.HelpMenu import HelpableScreen
-from Screens.ChoiceBox import ChoiceBox
-from Screens.InfoBar import MoviePlayer
 from Screens.VirtualKeyBoard import VirtualKeyBoard
-from Components.ActionMap import HelpableActionMap
-from Components.Pixmap import Pixmap
-from Components.Label import Label
-from Components.ScrollLabel import ScrollLabel
-from Components.Button import Button
-from Components.MenuList import MenuList
-from Components.Language import language
-from Components.ProgressBar import ProgressBar
-from Components.Sources.StaticText import StaticText
-from Components.Sources.Boolean import Boolean
-from Components.MovieList import KNOWN_EXTENSIONS
-from Tools.Directories import fileExists, resolveFilename, SCOPE_PLUGINS, isPluginInstalled
-import json
-import os
-import re
-import requests
-from time import strftime, strptime
-from twisted.internet.threads import deferToThread
-from shutil import copy
+from Tools.Directories import SCOPE_PLUGINS, fileExists, isPluginInstalled, resolveFilename
 
-from urllib.parse import quote_plus
-
-
-# Configuration
-from Components.config import config, ConfigSubsection, ConfigYesNo, ConfigText
-from Components.PluginComponent import plugins
+from . import _, ngettext
 
 
 config.plugins.imdb = ConfigSubsection()
@@ -50,8 +49,16 @@ config.plugins.imdb.showepisodeinfo = ConfigYesNo(default=False)
 config.plugins.imdb.translate_texts = ConfigYesNo(default=False)
 
 
+class IMDbNetwork:
+	@staticmethod
+	def fetch(url, params, data, headers):
+		# Import on the worker even when the first search precedes background preparation.
+		from requests import get as requestsGet, post as requestsPost
+		return (requestsPost if data else requestsGet)(url, params=params, data=data, headers=headers, timeout=30.05)
+
+
 def getPage(url, params=None, data=None, headers=None):
-	return deferToThread(requests.post if data else requests.get, url, params=params, data=data, headers=headers, timeout=30.05)
+	return deferToThread(IMDbNetwork.fetch, url, params, data, headers)
 
 
 def savePage(response, filename):
@@ -74,13 +81,13 @@ def postGraphQL(query, operation_name=None, variables=None, headers=None):
 		"query": query,
 	}
 	headers = headers or {}
-	return getPage("https://caching.graphql.imdb.com/", data=json.dumps(payload), headers=headers)
+	return getPage("https://caching.graphql.imdb.com/", data=dumps(payload), headers=headers)
 
 
 def safeRemove(*names):
 	for name in names:
 		try:
-			os.remove(name)
+			remove(name)
 		except OSError:
 			pass
 
@@ -96,7 +103,7 @@ def quoteEventName(eventName):
 
 # Prevent labels from processing escape characters.
 def text2label(text):
-	return re.sub(r'\\([cnrt])', r'\\\r\1', text)
+	return sub(r'\\([cnrt])', r'\\\r\1', text)
 
 
 # Return the JSON element described by path (str/tuple/list), or default
@@ -138,6 +145,7 @@ def get(json, path, default=""):
 def imdb_translate(text, lang):
 	if lang != "en" and text:
 		try:
+			from requests import get as requestsGet  # Needed only when translating a search result.
 			params = {
 				"client": "gtx",
 				"sl": "en",
@@ -145,7 +153,7 @@ def imdb_translate(text, lang):
 				"dt": "t",
 				"q": text,
 			}
-			r = requests.get(
+			r = requestsGet(
 				"https://translate.googleapis.com/translate_a/single",
 				params=params,
 				timeout=10
@@ -363,7 +371,7 @@ class IMDB(Screen, HelpableScreen):
 		return headers
 
 	def searchQueryGraphQL(self, search_term):
-		search_term = json.dumps(search_term)
+		search_term = dumps(search_term)
 		types = "[MOVIE, TV"
 		if config.plugins.imdb.showepisoderesults.value:
 			types += ", TV_EPISODE"
@@ -462,7 +470,7 @@ query Search {
 """ % (search_term, types)
 
 	def storylineQueryGraphQL(self, title_id):
-		title_id = json.dumps(title_id)
+		title_id = dumps(title_id)
 		return """
 query TitleStoryline {
   title(id: %s) {
@@ -828,7 +836,7 @@ query TitleStoryline {
 """ % title_id
 
 	def reviewsQueryGraphQL(self, title_id):
-		title_id = json.dumps(title_id)
+		title_id = dumps(title_id)
 		return """
 query TitleReviewsRefine {
   title(id: %s) {
@@ -880,7 +888,7 @@ query TitleReviewsRefine {
 		self["statusbar"].setText(_("Parsing reviews..."))
 		self.reviewsJSON = response.content.decode("utf8")
 		try:
-			reviews = json.loads(self.reviewsJSON)['data']['title']['reviews']['edges']
+			reviews = loads(self.reviewsJSON)['data']['title']['reviews']['edges']
 		except Exception as e:
 			self["statusbar"].setText(_("IMDb Reviews failed"))
 			print("[IMDB] reviews failed:", str(e))
@@ -930,7 +938,7 @@ query TitleReviewsRefine {
 
 		Detailstext = _("No details found.")
 		try:
-			title = json.loads(self.json).get("data", {}).get("title", {})
+			title = loads(self.json).get("data", {}).get("title", {})
 		except Exception as e:
 			print("[IMDb] json parse failed:", str(e))
 			title = {}
@@ -1550,7 +1558,7 @@ query TitleReviewsRefine {
 	def IMDBqueryGraphQL(self, response):
 		self["statusbar"].setText(_("IMDb Download completed"))
 		try:
-			data = json.loads(response.content.decode("utf8"))
+			data = loads(response.content.decode("utf8"))
 			searchresults = data["data"]["mainSearch"]["edges"]
 		except Exception as e:
 			self["detailslabel"].setText(_("IMDb query failed!"))
@@ -1650,13 +1658,14 @@ query TitleReviewsRefine {
 			self["statusbar"].setText(plot_text)
 
 	def http_failed(self, failure):
+		from requests import ConnectionError, RequestException, Timeout  # The worker has loaded requests before reporting a request failure.
 		text = _("IMDb Download failed")
-		if isinstance(failure.value, requests.ConnectionError):
+		if isinstance(failure.value, ConnectionError):
 			error_message = _("connection error")
-		elif isinstance(failure.value, requests.Timeout):
+		elif isinstance(failure.value, Timeout):
 			error_message = _("timeout")
 		else:
-			if not isinstance(failure.value, requests.RequestException):
+			if not isinstance(failure.value, RequestException):
 				text = _("IMDB Exception")
 			error_message = failure.getErrorMessage()
 		text += ": " + error_message
@@ -1788,9 +1797,9 @@ def movielistSearch(session, serviceref, **kwargs):
 	serviceHandler = eServiceCenter.getInstance()
 	info = serviceHandler.info(serviceref)
 	eventName = info and info.getName(serviceref) or ''
-	(root, ext) = os.path.splitext(eventName)
+	(root, ext) = splitext(eventName)
 	if ext in KNOWN_EXTENSIONS or ext in KNOWN_EXTENSIONS2:
-		eventName = re.sub(r"[\W_]+", ' ', root, 0)
+		eventName = sub(r"[\W_]+", ' ', root, 0)
 	session.open(IMDB, eventName)
 
 
@@ -1830,6 +1839,15 @@ pluginlist = (
 )
 
 
+def sessionStart(reason, session=None, **kwargs):
+	if reason == 0:
+		try:
+			from Tools.StartupTasks import startupTasks  # Older images load requests in the first search worker instead.
+		except ImportError:
+			return
+		startupTasks.add("IMDb HTTP", (partial(deferToThread, import_module, "requests"),))
+
+
 def Plugins(**kwargs):
 	items = [PluginDescriptor(name=_("IMDb search") + "...",
 			description=_("Search for details from the Internet Movie Database"),
@@ -1840,5 +1858,6 @@ def Plugins(**kwargs):
 		]
 
 	items += [pl[1] for pl in pluginlist if pl[0].value]
+	items.append(PluginDescriptor(where=PluginDescriptor.WHERE_SESSIONSTART, fnc=sessionStart))
 
 	return items
