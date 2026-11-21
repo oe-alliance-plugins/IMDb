@@ -348,6 +348,8 @@ class IMDB(Screen, HelpableScreen):
 		headers = {
 			"content-type": "application/json",
 			"referer": "https://www.imdb.com/",
+			"x-imdb-client-name": "imdb-web-next",
+			"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
 		}
 		if self.lang:
 			headers["X-Imdb-User-Language"] = self.lang
