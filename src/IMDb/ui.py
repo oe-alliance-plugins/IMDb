@@ -30,7 +30,7 @@ from Screens.Setup import Setup
 from Screens.VirtualKeyBoard import VirtualKeyBoard
 from Tools.Directories import SCOPE_PLUGINS, fileExists, isPluginInstalled, resolveFilename
 
-from . import _, ngettext
+from . import _, ngettext, __version__
 from .plugin import config
 
 
@@ -1747,7 +1747,7 @@ class IMDbLCDScreen(Screen):
 class IMDbSetup(Setup):
 	def __init__(self, session):
 		Setup.__init__(self, session, "imdb", plugin="Extensions/IMDb", PluginLanguageDomain="IMDb")
-		self.setTitle(_("IMDb Setup"))
+		self.setTitle(_("IMDb Setup") + " v" + __version__)
 
 	def keySave(self):
 		from .plugin import pluginlist  # Read the current registration list when saving.
